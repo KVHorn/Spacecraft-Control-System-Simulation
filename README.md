@@ -1,6 +1,6 @@
 # Spacecraft-Control-System-Simulation
 
-A real-time 3D solar system simulation built with C++ and OpenGL 3.3. All eight planets orbit the Sun with accurate sizes, orbital periods, axial tilts, and real-world inclinations relative to the ecliptic plane. Planet positions are seeded from live JPL Horizons data on startup when a network connection is available. A full spacecraft mission system lets you place a crewed vehicle in orbit around any body and fly it with engine and attitude controls.
+A real-time 3D Spacecraft Control System Simulation built with C++ and OpenGL 3.3. All eight planets orbit the Sun with accurate sizes, orbital periods, axial tilts, and real-world inclinations relative to the ecliptic plane. Planet positions are seeded from live JPL Horizons data on startup when a network connection is available. A full spacecraft mission system lets you place a crewed vehicle in orbit around any body and fly it with engine and attitude controls.
 
 ---
 
