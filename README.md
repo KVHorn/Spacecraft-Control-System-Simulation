@@ -46,7 +46,7 @@ You do **not** need to install any libraries manually. CMake's `FetchContent` do
 ## Folder Structure
 
 ```
-SolarSystemSim/
+Spacecraft-Control-System-Simulation/
 ├── CMakeLists.txt
 ├── README.md
 ├── build.bat                         One-click Windows build script
@@ -92,14 +92,14 @@ Missing textures are silently skipped; the program still runs with a placeholder
 Double-click `build.bat` in File Explorer, or run it from a command prompt:
 
 ```
-cd C:\SolarSystemSim
+cd C:\Spacecraft-Control-System-Simulation
 build.bat
 ```
 
 The first build takes 5–10 minutes while CMake downloads and compiles all dependencies. Subsequent builds are fast. The executable is placed at:
 
 ```
-bin\Release\SolarSystemSim.exe
+bin\Release\SpacecraftControlSystemSimulation.exe
 ```
 
 ### Option 2 — Manual CMake
@@ -111,7 +111,7 @@ cmake --build build --config Release
 
 ### Option 3 — Visual Studio
 
-Open the `SolarSystemSim` folder using **File → Open → Folder**. Visual Studio detects the `CMakeLists.txt` automatically. Select `SolarSystemSim.exe` as the startup item and press **F5** to build and run.
+Open the `Spacecraft-Control-System-Simulation` folder using **File → Open → Folder**. Visual Studio detects the `CMakeLists.txt` automatically. Select `SpacecraftControlSystemSimulation.exe` as the startup item and press **F5** to build and run.
 
 ### Troubleshooting
 
@@ -125,7 +125,7 @@ Open the `SolarSystemSim` folder using **File → Open → Folder**. Visual Stud
 
 ## Running
 
-Double-click `bin\Release\SolarSystemSim.exe`. The app launches maximized with the solar system visible and two control sidebars.
+Double-click `bin\Release\SpacecraftControlSystemSimulation.exe`. The app launches maximized with the solar system visible and two control sidebars.
 
 > **Note:** The app contacts the JPL Horizons API on startup to seed accurate planet positions for today's date. If you are offline it falls back to analytic positions automatically — no action required.
 
