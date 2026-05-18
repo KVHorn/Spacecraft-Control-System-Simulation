@@ -3,7 +3,7 @@ REM -- Simple one-click build for Windows (requires CMake + Visual Studio + git)
 setlocal
 
 echo.
-echo === Configuring SolarSystemSim with CMake ===
+echo === Configuring SpacecraftControlSystemSimulation with CMake ===
 cmake -S . -B build
 if errorlevel 1 (
     echo.
@@ -26,7 +26,7 @@ if errorlevel 1 (
 
 echo.
 echo === Build successful ===
-echo Executable: bin\SolarSystemSim.exe
+echo Executable: bin\SpacecraftControlSystemSimulation.exe
 echo.
 echo Remember to put your planet texture files in the textures\ folder.
 echo See README.md for the expected filenames.

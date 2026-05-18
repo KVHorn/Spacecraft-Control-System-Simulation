@@ -1845,7 +1845,7 @@ int main() {
     glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
-    g_window = glfwCreateWindow(g_winW, g_winH, "Solar System Simulator", nullptr, nullptr);
+    g_window = glfwCreateWindow(g_winW, g_winH, "Spacecraft Control System Simulation", nullptr, nullptr);
     if (!g_window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(g_window);
     glfwGetFramebufferSize(g_window, &g_winW, &g_winH);

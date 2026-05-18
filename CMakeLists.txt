@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SolarSystemSim CXX C)
+project(SpacecraftControlSystemSimulation CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -108,7 +108,7 @@ target_include_directories(imgui PUBLIC
 target_link_libraries(imgui PUBLIC glfw)
 
 # ---- Main executable ----
-add_executable(SolarSystemSim
+add_executable(SpacecraftControlSystemSimulation
     src/main.cpp
     src/Shader.cpp
     src/Texture.cpp
@@ -122,39 +122,39 @@ add_executable(SolarSystemSim
     src/stb_image_impl.cpp
 )
 
-target_include_directories(SolarSystemSim PRIVATE
+target_include_directories(SpacecraftControlSystemSimulation PRIVATE
     src/
     ${stb_SOURCE_DIR}
     ${tinygltf_SOURCE_DIR}
 )
 
-target_link_libraries(SolarSystemSim PRIVATE
+target_link_libraries(SpacecraftControlSystemSimulation PRIVATE
     glfw glm::glm glad_gl_core_33 imgui
     nlohmann_json::nlohmann_json
     CURL::libcurl
 )
 
 # Copy shaders/textures/models next to the actual .exe (handles MSVC Release/Debug subfolders)
-add_custom_command(TARGET SolarSystemSim POST_BUILD
+add_custom_command(TARGET SpacecraftControlSystemSimulation POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/shaders
-        $<TARGET_FILE_DIR:SolarSystemSim>/shaders
+        $<TARGET_FILE_DIR:SpacecraftControlSystemSimulation>/shaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/textures
-        $<TARGET_FILE_DIR:SolarSystemSim>/textures
+        $<TARGET_FILE_DIR:SpacecraftControlSystemSimulation>/textures
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/models
-        $<TARGET_FILE_DIR:SolarSystemSim>/models
+        $<TARGET_FILE_DIR:SpacecraftControlSystemSimulation>/models
     COMMENT "Copying shaders, textures, and models next to the executable"
 )
 
 if(MSVC)
-    target_compile_options(SolarSystemSim PRIVATE /W3)
+    target_compile_options(SpacecraftControlSystemSimulation PRIVATE /W3)
     # Hide the console window in Release for cleaner fullscreen UX
-    set_target_properties(SolarSystemSim PROPERTIES
+    set_target_properties(SpacecraftControlSystemSimulation PROPERTIES
         WIN32_EXECUTABLE $<IF:$<CONFIG:Release>,TRUE,FALSE>
         LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
     )
 else()
-    target_compile_options(SolarSystemSim PRIVATE -Wall)
+    target_compile_options(SpacecraftControlSystemSimulation PRIVATE -Wall)
 endif()

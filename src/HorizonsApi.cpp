@@ -55,7 +55,7 @@ static std::string httpGet(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "SolarSystemSim/1.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "SpacecraftControlSystemSimulation/1.0");
 
     CURLcode code = curl_easy_perform(curl);
     if (code != CURLE_OK) {

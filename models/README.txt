@@ -1,6 +1,6 @@
 Put your .glb or .gltf spacecraft models here.
 
-The app scans this folder (relative to SolarSystemSim.exe) at startup, so the
+The app scans this folder (relative to SpacecraftControlSystemSimulation.exe) at startup, so the
 files at build time need to end up next to the exe. CMake is set up to copy
 this folder into bin/Release/ automatically.
 
@@ -11,7 +11,7 @@ Supported formats:
 Typical workflow:
   1. Drop your model files (e.g. apollo_csm.glb, soyuz.glb) into this folder.
   2. Rebuild OR copy them directly into bin/Release/models/
-  3. Launch SolarSystemSim.exe -> the files appear in the menu's Model dropdown.
+  3. Launch SpacecraftControlSystemSimulation.exe -> the files appear in the menu's Model dropdown.
   4. Click "Rescan" in the menu to pick up newly added files without restarting.
 
 Tips:

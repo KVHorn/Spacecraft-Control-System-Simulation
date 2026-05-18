@@ -1,4 +1,4 @@
-# CONTEXT.md — Solar System Simulator Project Handoff
+# CONTEXT.md — Spacecraft Control System Simulation Project Handoff
 
 **Purpose of this file:** handoff from a long conversation with Claude in the chat interface to a fresh Claude Code session. Reader should be able to continue development without re-explaining the whole project. Treat this as authoritative; if it conflicts with what code comments say, trust the code and update this file.
 
@@ -23,7 +23,7 @@ C++/OpenGL desktop simulator for interactive exploration of the solar system and
 ## 3. Directory layout
 
 ```
-SolarSystemSim/
+SpacecraftControlSystemSimulation/
 ├── CMakeLists.txt          # FetchContent for everything — no system deps except compiler
 ├── build.bat               # Windows one-click build
 ├── README.md
