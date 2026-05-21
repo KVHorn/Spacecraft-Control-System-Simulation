@@ -37,31 +37,31 @@ enum class ViewMode { SolarSystem, Planet, Spacecraft };
 static ViewMode  g_view = ViewMode::SolarSystem;
 
 static GLFWwindow* g_window = nullptr;
-static int g_winW = 1600, g_winH = 900;
+static int g_windowWidth = 1600, g_windowHeight = 900;
 
 // Sidebars
-static const float kLeftW  = 330.0f;
-static const float kRightW = 280.0f;
+static const float kLeftSidebarWidth  = 330.0f;
+static const float kRightSidebarWidth = 280.0f;
 
 // Viewport region (3D scene area between sidebars)
-static int g_vpX = 0, g_vpY = 0, g_vpW = 1, g_vpH = 1;
+static int g_viewportX = 0, g_viewportY = 0, g_viewportWidth = 1, g_viewportHeight = 1;
 
 static OrbitCamera g_camera;
 
-static bool   g_rightDrag = false;
-static double g_lastMX = 0, g_lastMY = 0;
+static bool   g_isRightMouseDragging = false;
+static double g_lastMouseX = 0, g_lastMouseY = 0;
 
 // Display toggles
 static bool g_showPlanetOrbits = true;
 static bool g_showPlanetFrames = true;
-static bool g_showScOrbits     = true;
-static bool g_showScFrames     = true;
+static bool g_showSpacecraftOrbit     = true;
+static bool g_showSpacecraftFrame     = true;
 
 // Display colors (ImVec4 for color pickers; converted to IM_COL32 / glm at use site)
 static ImVec4 g_planetOrbitColor = ImVec4(0.0f, 1.0f, 1.0f, 1.0f);
 static ImVec4 g_planetFrameColor = ImVec4(0.0f, 1.0f, 1.0f, 1.0f);
-static ImVec4 g_scOrbitColor     = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
-static ImVec4 g_scFrameColor     = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+static ImVec4 g_spacecraftOrbitColor     = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+static ImVec4 g_spacecraftFrameColor     = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
 
 // Skybox / visual
 static float g_skyboxBrightness = 0.85f;
@@ -95,11 +95,15 @@ struct HohmannPlan {
 };
 static HohmannPlan g_hohmann;
 static bool  g_openHohmannPopup = false;
-static int   g_hmTargetBodyIdx  = 3;       // Earth default
-static float g_hmPeriKm         = 6771.0f; // 400 km altitude
-static float g_hmApoKm          = 42164.0f;// GEO
+static int   g_hohmannTargetBodyIdx  = 3;       // Earth default
+static float g_hohmannPeriapsisKm         = 6771.0f; // 400 km altitude
+static float g_hohmannApoapsisKm          = 42164.0f;// GEO
 
-// Convert ImVec4 color to IM_COL32
+// colFromVec4
+// Purpose: Convert an ImVec4 floating-point color (each channel 0.0-1.0) to a
+//          packed IM_COL32 RGBA integer suitable for ImGui draw calls.
+// Inputs:  c - RGBA color with each component in [0.0, 1.0]
+// Returns: Packed 32-bit RGBA color as ImU32
 static ImU32 colFromVec4(const ImVec4& c) {
     return IM_COL32(
         (int)(c.x * 255.0f + 0.5f),
@@ -125,38 +129,61 @@ static std::unique_ptr<Model>   g_currentModel;
 // ----------------------------------------------------------------------------
 // Callbacks
 // ----------------------------------------------------------------------------
+// framebufferSizeCallback
+// Purpose: GLFW callback invoked when the OS resizes the window framebuffer.
+// Inputs:  w, h - new framebuffer width and height in pixels
+// Actions: Updates g_windowWidth/g_windowHeight so the rest of the frame uses the correct size.
 static void framebufferSizeCallback(GLFWwindow*, int w, int h) {
-    g_winW = w; g_winH = h;
+    g_windowWidth = w; g_windowHeight = h;
 }
 
+// mouseInCenterViewport
+// Purpose: Test whether a mouse position falls inside the 3D viewport (the region between the two sidebars).
+// Inputs:  mx, my - mouse cursor position in window pixel coordinates
+// Returns: true if the cursor is inside the viewport rectangle.
 static bool mouseInCenterViewport(double mx, double my) {
-    return mx >= g_vpX && mx < g_vpX + g_vpW &&
-           my >= g_vpY && my < g_vpY + g_vpH;
+    return mx >= g_viewportX && mx < g_viewportX + g_viewportWidth &&
+           my >= g_viewportY && my < g_viewportY + g_viewportHeight;
 }
 
+// mouseButtonCallback
+// Purpose: GLFW callback for mouse button presses; starts or stops right-click camera drag.
+// Inputs:  w      - GLFW window handle
+//          button - which mouse button was pressed/released
+//          action - GLFW_PRESS or GLFW_RELEASE
+// Actions: On right-button press inside the viewport, begins tracking the cursor for camera
+//          rotation. On release, stops tracking.
 static void mouseButtonCallback(GLFWwindow* w, int button, int action, int) {
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
             double mx, my; glfwGetCursorPos(w, &mx, &my);
             if (mouseInCenterViewport(mx, my)) {
-                g_rightDrag = true;
-                g_lastMX = mx; g_lastMY = my;
+                g_isRightMouseDragging = true;
+                g_lastMouseX = mx; g_lastMouseY = my;
             }
         } else {
-            g_rightDrag = false;
+            g_isRightMouseDragging = false;
         }
     }
 }
 
+// cursorPosCallback
+// Purpose: GLFW callback for cursor movement; rotates the camera during a right-click drag.
+// Inputs:  x, y - current cursor position in window pixels
+// Actions: Computes pixel delta from last position and forwards it to OrbitCamera::rotate().
 static void cursorPosCallback(GLFWwindow*, double x, double y) {
-    if (!g_rightDrag) return;
-    float dx = float(x - g_lastMX);
-    float dy = float(y - g_lastMY);
-    g_lastMX = x; g_lastMY = y;
+    if (!g_isRightMouseDragging) return;
+    float dx = float(x - g_lastMouseX);
+    float dy = float(y - g_lastMouseY);
+    g_lastMouseX = x; g_lastMouseY = y;
     g_camera.rotate(dx, -dy);
 }
 
+// scrollCallback
+// Purpose: GLFW callback for scroll wheel; zooms the camera in or out.
+// Inputs:  yoff - vertical scroll amount (positive = wheel up = zoom in)
+// Actions: Forwards scroll ticks to OrbitCamera::zoom().
 static void scrollCallback(GLFWwindow*, double, double yoff) {
     if (ImGui::GetIO().WantCaptureMouse) return;
     g_camera.zoom(float(yoff));
@@ -165,6 +192,11 @@ static void scrollCallback(GLFWwindow*, double, double yoff) {
 // ----------------------------------------------------------------------------
 // Camera targeting
 // ----------------------------------------------------------------------------
+// snapCameraForView
+// Purpose: Reposition and re-orient the camera to a sensible initial position for the current view mode.
+// Inputs:  sim - solar system used to read planet positions and radii
+// Actions: Sets the camera focus, distance, and angle limits appropriate for SolarSystem,
+//          Planet, or Spacecraft view. Resets orbit angles to defaults.
 static void snapCameraForView(SolarSystem& sim) {
     size_t parentIdx = (size_t)std::clamp(g_config.startingBody, 0,
                                           (int)sim.bodyCount() - 1);
@@ -180,13 +212,18 @@ static void snapCameraForView(SolarSystem& sim) {
     } else {
         // Spacecraft view: allow zooming tight enough to see a real-scale craft.
         float s = g_missionActive ? g_spacecraft.renderScale : 5.0f;
-        g_camera.setFocus(g_missionActive ? g_spacecraft.worldPos : glm::vec3(0.0f),
+        g_camera.setFocus(g_missionActive ? g_spacecraft.worldPosition : glm::vec3(0.0f),
                           s * 6.0f, true, 90.0f, 45.0f);
         g_camera.minDistance = std::max(1e-6f, s * 0.2f); // very close
         g_camera.maxDistance = s * 5000.0f;
     }
 }
 
+// trackCameraForView
+// Purpose: Update the camera's focus point every frame so it follows the active target.
+// Inputs:  sim - solar system for planet world positions
+// Actions: In SolarSystem view focuses on the origin; in Planet view tracks the selected planet;
+//          in Spacecraft view tracks the active spacecraft's worldPosition.
 static void trackCameraForView(SolarSystem& sim) {
     size_t parentIdx = (size_t)std::clamp(g_config.startingBody, 0,
                                           (int)sim.bodyCount() - 1);
@@ -195,7 +232,7 @@ static void trackCameraForView(SolarSystem& sim) {
     } else if (g_view == ViewMode::Planet) {
         g_camera.focus = sim.body(parentIdx).worldPos;
     } else {
-        if (g_missionActive) g_camera.focus = g_spacecraft.worldPos;
+        if (g_missionActive) g_camera.focus = g_spacecraft.worldPosition;
     }
     g_camera.update();
 }
@@ -203,6 +240,10 @@ static void trackCameraForView(SolarSystem& sim) {
 // ----------------------------------------------------------------------------
 // Models
 // ----------------------------------------------------------------------------
+// scanModelsDirectory
+// Purpose: Populate g_availableModels with all .glb/.gltf files found in the model directories.
+// Actions: Clears the list, then scans "models/" and "textures/3d SpaceCraft Assets/" for
+//          supported 3D model files and appends their full relative paths.
 static void scanModelsDirectory() {
     g_availableModels.clear();
     g_availableModels.push_back(""); // index 0 = default sphere
@@ -229,6 +270,12 @@ static void scanModelsDirectory() {
 // ----------------------------------------------------------------------------
 // Launch / end mission
 // ----------------------------------------------------------------------------
+// launchMission
+// Purpose: Initialize and activate a new spacecraft mission using the current g_config settings.
+// Inputs:  sim - solar system, used to seed planet positions before spacecraft init
+// Actions: Ticks the simulation one micro-step to set planet positions, initializes
+//          g_spacecraft, loads the 3D model if configured, computes render scale,
+//          resets the Hohmann plan, and switches to SolarSystem view.
 static void launchMission(SolarSystem& sim) {
     sim.update(0.001f, 1.0f);
     g_spacecraft.init(g_config, sim);
@@ -256,6 +303,9 @@ static void launchMission(SolarSystem& sim) {
     snapCameraForView(sim);
 }
 
+// endMission
+// Purpose: Deactivate the current mission and free its 3D model resource.
+// Actions: Sets g_missionActive to false, resets the loaded model pointer, and clears the Hohmann plan.
 static void endMission() {
     g_missionActive = false;
     g_currentModel.reset();
@@ -267,6 +317,11 @@ static void endMission() {
 // Coordinate helpers
 // ----------------------------------------------------------------------------
 // Real position of a planet in km (ignoring compressed scene units).
+// planetRealPositionKm
+// Purpose: Compute the real (uncompressed) heliocentric position of a planet in km.
+// Inputs:  p       - planet whose orbit parameters to use
+//          x, y, z - output coordinates in km
+// Actions: Converts orbitRadiusGm to km and applies the orbit angle.
 static void planetRealPositionKm(const Planet& p, float& x, float& y, float& z) {
     float rKm = p.orbitRadiusGm * 1.0e6f;
     float a = glm::radians(p.orbitAngle);
@@ -276,16 +331,29 @@ static void planetRealPositionKm(const Planet& p, float& x, float& y, float& z) 
 }
 
 // Real position of the spacecraft in km.
+// spacecraftRealPositionKm
+// Purpose: Compute the real (uncompressed) heliocentric position of the spacecraft in km.
+// Inputs:  sc      - spacecraft whose statePosKm and parentBodyIdx to use
+//          sim     - solar system for the parent planet's orbit angle
+//          x, y, z - output heliocentric coordinates in km
+// Actions: Adds the spacecraft's parent-relative state position to the parent planet's real position.
 static void spacecraftRealPositionKm(const Spacecraft& sc, const SolarSystem& sim,
                                      float& x, float& y, float& z) {
     float px, py, pz;
     planetRealPositionKm(sim.body((size_t)sc.parentBodyIdx), px, py, pz);
-    x = px + (float)sc.statePos.x;
-    y = py + (float)sc.statePos.y;
-    z = pz + (float)sc.statePos.z;
+    x = px + (float)sc.statePosKm.x;
+    y = py + (float)sc.statePosKm.y;
+    z = pz + (float)sc.statePosKm.z;
 }
 
 // Formats a km triplet with auto-scaled units (km / Mm / Gm / Tm)
+// formatCoordKm
+// Purpose: Format a position in km as a string, auto-scaling to Mm, Gm, or Tm as needed.
+// Inputs:  buf  - output character buffer
+//          n    - buffer size in bytes
+//          x, y, z - coordinate components in km
+// Actions: Finds the largest component magnitude, picks the appropriate unit prefix, and
+//          writes a formatted "(x, y, z) unit" string into buf.
 static void formatCoordKm(char* buf, size_t n, float x, float y, float z) {
     float m = std::max({std::fabs(x), std::fabs(y), std::fabs(z)});
     const char* unit = "km";
@@ -301,6 +369,11 @@ static void formatCoordKm(char* buf, size_t n, float x, float y, float z) {
 // ----------------------------------------------------------------------------
 static bool g_openCreateSimPopup = false;
 
+// drawCreateSimulationPopup
+// Purpose: Render the modal dialog for configuring and launching a new spacecraft mission.
+// Inputs:  sim - solar system, used to populate the starting-body dropdown
+// Actions: Shows controls for spacecraft type, starting body, orbit parameters, 3D model
+//          selection, physics mode, and a Launch button that calls launchMission().
 static void drawCreateSimulationPopup(SolarSystem& sim) {
     if (g_openCreateSimPopup) {
         ImGui::OpenPopup("Create Simulation");
@@ -402,6 +475,11 @@ static void drawCreateSimulationPopup(SolarSystem& sim) {
 // ----------------------------------------------------------------------------
 // Settings popup modal
 // ----------------------------------------------------------------------------
+// drawSettingsPopup
+// Purpose: Render the modal settings dialog for display, scale, visual, and physics options.
+// Inputs:  sim - solar system whose visual settings (planet size, orbit color, etc.) are read and written
+// Actions: Presents checkboxes and sliders for overlays, orbit compression, size multipliers,
+//          skybox controls, and physics mode. Changes take effect immediately.
 static void drawSettingsPopup(SolarSystem& sim) {
     if (g_openSettingsPopup) {
         ImGui::OpenPopup("Settings");
@@ -424,8 +502,8 @@ static void drawSettingsPopup(SolarSystem& sim) {
 
     ImGui::Checkbox("Planet frames",        &g_showPlanetFrames);
     ImGui::Checkbox("Planet orbital paths", &g_showPlanetOrbits);
-    ImGui::Checkbox("Spacecraft frame",     &g_showScFrames);
-    ImGui::Checkbox("Spacecraft orbit",     &g_showScOrbits);
+    ImGui::Checkbox("Spacecraft frame",     &g_showSpacecraftFrame);
+    ImGui::Checkbox("Spacecraft orbit",     &g_showSpacecraftOrbit);
 
     ImGui::NextColumn();
 
@@ -434,9 +512,9 @@ static void drawSettingsPopup(SolarSystem& sim) {
     ImGui::SameLine(); ImGui::TextDisabled("Planet frame color");
     ImGui::ColorEdit3("##pocol",  (float*)&g_planetOrbitColor, ImGuiColorEditFlags_NoLabel);
     ImGui::SameLine(); ImGui::TextDisabled("Planet orbit color");
-    ImGui::ColorEdit3("##sfcol",  (float*)&g_scFrameColor,     ImGuiColorEditFlags_NoLabel);
+    ImGui::ColorEdit3("##sfcol",  (float*)&g_spacecraftFrameColor,     ImGuiColorEditFlags_NoLabel);
     ImGui::SameLine(); ImGui::TextDisabled("SC frame color");
-    ImGui::ColorEdit3("##socol",  (float*)&g_scOrbitColor,     ImGuiColorEditFlags_NoLabel);
+    ImGui::ColorEdit3("##socol",  (float*)&g_spacecraftOrbitColor,     ImGuiColorEditFlags_NoLabel);
     ImGui::SameLine(); ImGui::TextDisabled("SC orbit color");
     ImGui::PopItemWidth();
 
@@ -534,6 +612,10 @@ static void drawSettingsPopup(SolarSystem& sim) {
 // ----------------------------------------------------------------------------
 // Help popup modal
 // ----------------------------------------------------------------------------
+// drawHelpPopup
+// Purpose: Render the modal help reference dialog listing all controls and features.
+// Actions: Opens and draws a scrollable ImGui popup window with navigation, view, simulation,
+//          time, display, spacecraft control, navball, and settings documentation.
 static void drawHelpPopup() {
     if (g_openHelpPopup) {
         ImGui::OpenPopup("Help");
@@ -607,8 +689,8 @@ static void drawHelpPopup() {
     section("NAVBALL  (bottom-center of viewport)");
     ImGui::TextWrapped("Shows spacecraft attitude relative to the Local Vertical / Local Horizontal (LVLH) orbital frame.");
     ImGui::Spacing();
-    ImGui::BulletText("PRO  (yellow):    Prograde — direction of orbital velocity");
-    ImGui::BulletText("RET  (yellow):    Retrograde — opposite of orbital velocity");
+    ImGui::BulletText("PRO  (yellow):    Prograde - direction of orbital velocity");
+    ImGui::BulletText("RET  (yellow):    Retrograde - opposite of orbital velocity");
     ImGui::BulletText("RAD  (cyan):      Radially away from the orbited body");
     ImGui::BulletText("ARAD (cyan):      Radially toward the orbited body");
     ImGui::BulletText("N / -N (purple):  Orbital normal (perpendicular to orbit plane)");
@@ -636,9 +718,9 @@ static void drawHelpPopup() {
     ImGui::BulletText("Sun brightness: Emissive intensity of the sun surface");
     ImGui::BulletText("Skybox brightness: 0 = black, 1 = neutral, 2 = overexposed");
     ImGui::BulletText("Skybox Yaw / Pitch / Roll: Rotate the Milky Way panorama");
-    ImGui::BulletText("Physics — Patched Conics: Fast Keplerian ellipses with\n"
+    ImGui::BulletText("Physics - Patched Conics: Fast Keplerian ellipses with\n"
                       "  instant sphere-of-influence transitions");
-    ImGui::BulletText("Physics — N-Body RK4: Full gravitational simulation from\n"
+    ImGui::BulletText("Physics - N-Body RK4: Full gravitational simulation from\n"
                       "  all planets (more accurate, CPU-intensive at high timescale)");
 
     // ---- DEBUG OPTIONS ----
@@ -660,6 +742,16 @@ static void drawHelpPopup() {
 // ----------------------------------------------------------------------------
 // Hohmann transfer planner
 // ----------------------------------------------------------------------------
+// computeHohmannPlan
+// Purpose: Calculate the delta-V and burn durations for a two-burn Hohmann transfer.
+// Inputs:  sim       - solar system for planet GM values and heliocentric positions
+//          sc        - current spacecraft state (position, velocity, mass, engine data)
+//          targetIdx - index of the target planet (or same as sc.parentBodyIdx for an orbit change)
+//          periKm    - desired periapsis radius of the target orbit, km from body center
+//          apoKm     - desired apoapsis radius of the target orbit, km from body center
+// Actions: Computes vis-viva speeds and hyperbolic excess velocities for both burns.
+//          Uses the Tsiolkovsky rocket equation to estimate burn durations.
+// Returns: Populated HohmannPlan struct with burn directions, dV, duration, and 3D positions.
 static HohmannPlan computeHohmannPlan(const SolarSystem& sim, const Spacecraft& sc,
                                        int targetIdx, double periKm, double apoKm) {
     HohmannPlan plan;
@@ -672,9 +764,9 @@ static HohmannPlan computeHohmannPlan(const SolarSystem& sim, const Spacecraft& 
     const double g0_kms   = 9.80665e-3;       // standard gravity in km/s²
 
     // Current (approx circular) orbit radius around parent body
-    double r1  = glm::length(sc.statePos);
+    double r1  = glm::length(sc.statePosKm);
     if (r1 < 10.0) r1 = 10.0;
-    double mu1 = (double)sc.muKm3PerS2;
+    double mu1 = (double)sc.gravParamKm3S2;
     double v1c = std::sqrt(mu1 / r1);  // circular speed km/s
 
     // Burn duration from Tsiolkovsky rocket equation (result in real seconds)
@@ -708,13 +800,13 @@ static HohmannPlan computeHohmannPlan(const SolarSystem& sim, const Spacecraft& 
         plan.burns[0].dv_kms        = std::abs(dv1);
         plan.burns[0].duration_s    = burnDuration(std::abs(dv1));
         plan.burns[0].prograde      = (dv1 >= 0.0);
-        plan.burns[0].posRelParent  = sc.statePos;
+        plan.burns[0].posRelParent  = sc.statePosKm;
 
         plan.burns[1].dv_kms        = std::abs(dv2);
         plan.burns[1].duration_s    = burnDuration(std::abs(dv2));
         plan.burns[1].prograde      = (dv2 >= 0.0);
         // Burn 2 at apoapsis of transfer orbit = opposite side from burn 1
-        plan.burns[1].posRelParent  = -glm::normalize(sc.statePos) * ra;
+        plan.burns[1].posRelParent  = -glm::normalize(sc.statePosKm) * ra;
 
     } else {
         // ---- Interplanetary patched-conics Hohmann ----
@@ -748,7 +840,7 @@ static HohmannPlan computeHohmannPlan(const SolarSystem& sim, const Spacecraft& 
         plan.burns[0].dv_kms        = std::abs(dv1);
         plan.burns[0].duration_s    = burnDuration(std::abs(dv1));
         plan.burns[0].prograde      = toOuter;    // prograde = outer, retrograde = inner
-        plan.burns[0].posRelParent  = sc.statePos;
+        plan.burns[0].posRelParent  = sc.statePosKm;
 
         plan.burns[1].dv_kms        = dv2;
         plan.burns[1].duration_s    = burnDuration(dv2);
@@ -761,6 +853,12 @@ static HohmannPlan computeHohmannPlan(const SolarSystem& sim, const Spacecraft& 
     return plan;
 }
 
+// drawHohmannPopup
+// Purpose: Render the modal dialog for planning a Hohmann transfer maneuver.
+// Inputs:  sim - solar system for body names and positions
+//          sc  - current spacecraft (used for live delta-V preview)
+// Actions: Shows target body selector, periapsis/apoapsis inputs, and a live preview of
+//          both burn delta-Vs and durations. Confirms plan on "Plan Transfer" click.
 static void drawHohmannPopup(const SolarSystem& sim, const Spacecraft& sc) {
     if (g_openHohmannPopup) {
         ImGui::OpenPopup("Set Target Orbit");
@@ -780,33 +878,33 @@ static void drawHohmannPopup(const SolarSystem& sim, const Spacecraft& sc) {
     for (size_t i = 0; i < sim.bodyCount(); ++i)
         bodyNames.push_back(sim.body(i).name.c_str());
     ImGui::Text("Target Body:");
-    ImGui::Combo("##hmtgt", &g_hmTargetBodyIdx, bodyNames.data(), (int)bodyNames.size());
+    ImGui::Combo("##hmtgt", &g_hohmannTargetBodyIdx, bodyNames.data(), (int)bodyNames.size());
 
-    bool sameBdy = (g_hmTargetBodyIdx == sc.parentBodyIdx);
+    bool sameBdy = (g_hohmannTargetBodyIdx == sc.parentBodyIdx);
     if (sameBdy)
         ImGui::TextDisabled("  Orbit change around %s", sim.body(sc.parentBodyIdx).name.c_str());
     else
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "  Interplanetary: %s → %s",
             sim.body(sc.parentBodyIdx).name.c_str(),
-            sim.body(g_hmTargetBodyIdx).name.c_str());
+            sim.body(g_hohmannTargetBodyIdx).name.c_str());
 
     ImGui::Spacing();
     float tgtR = sameBdy ? (float)sim.body(sc.parentBodyIdx).radiusKm
-                         : (float)sim.body(g_hmTargetBodyIdx).radiusKm;
+                         : (float)sim.body(g_hohmannTargetBodyIdx).radiusKm;
     ImGui::Text("Target Orbit (km from body center):");
-    ImGui::InputFloat("Periapsis##hmp", &g_hmPeriKm, 10.0f, 100.0f, "%.0f");
-    ImGui::InputFloat("Apoapsis##hma",  &g_hmApoKm,  10.0f, 100.0f, "%.0f");
-    g_hmPeriKm = std::max(g_hmPeriKm, tgtR + 10.0f);
-    g_hmApoKm  = std::max(g_hmApoKm,  g_hmPeriKm);
+    ImGui::InputFloat("Periapsis##hmp", &g_hohmannPeriapsisKm, 10.0f, 100.0f, "%.0f");
+    ImGui::InputFloat("Apoapsis##hma",  &g_hohmannApoapsisKm,  10.0f, 100.0f, "%.0f");
+    g_hohmannPeriapsisKm = std::max(g_hohmannPeriapsisKm, tgtR + 10.0f);
+    g_hohmannApoapsisKm  = std::max(g_hohmannApoapsisKm,  g_hohmannPeriapsisKm);
     ImGui::TextDisabled("  Periapsis altitude: %.0f km   Apoapsis altitude: %.0f km",
-        g_hmPeriKm - tgtR, g_hmApoKm - tgtR);
+        g_hohmannPeriapsisKm - tgtR, g_hohmannApoapsisKm - tgtR);
 
     ImGui::Spacing();
     ImGui::Separator();
 
     // Live preview
     HohmannPlan preview = computeHohmannPlan(sim, sc,
-        g_hmTargetBodyIdx, (double)g_hmPeriKm, (double)g_hmApoKm);
+        g_hohmannTargetBodyIdx, (double)g_hohmannPeriapsisKm, (double)g_hohmannApoapsisKm);
     if (preview.active) {
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 1.0f, 1.0f), "CALCULATED BURNS");
         ImGui::Separator();
@@ -835,7 +933,7 @@ static void drawHohmannPopup(const SolarSystem& sim, const Spacecraft& sc) {
     ImGui::Separator();
     if (ImGui::Button("Plan Transfer", ImVec2(160, 28))) {
         g_hohmann = computeHohmannPlan(sim, sc,
-            g_hmTargetBodyIdx, (double)g_hmPeriKm, (double)g_hmApoKm);
+            g_hohmannTargetBodyIdx, (double)g_hohmannPeriapsisKm, (double)g_hohmannApoapsisKm);
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -851,9 +949,14 @@ static void drawHohmannPopup(const SolarSystem& sim, const Spacecraft& sc) {
 // ----------------------------------------------------------------------------
 // Left sidebar: Create Simulation button, view/time, planet list with coords
 // ----------------------------------------------------------------------------
+// drawLeftSidebar
+// Purpose: Render the left UI panel with simulation controls, view selection, and the planet list.
+// Inputs:  sim - solar system for planet names and coordinates
+// Actions: Draws buttons (Create Simulation, End Mission, Settings, Help), view mode radio
+//          buttons, display toggles, time controls, and a scrollable list of all bodies.
 static void drawLeftSidebar(SolarSystem& sim) {
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kLeftW, (float)g_winH), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(kLeftSidebarWidth, (float)g_windowHeight), ImGuiCond_Always);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
                            | ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoCollapse;
 
@@ -905,15 +1008,15 @@ static void drawLeftSidebar(SolarSystem& sim) {
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 1.0f, 1.0f), "DISPLAY");
         ImGui::Checkbox("Planet frames",        &g_showPlanetFrames);
         ImGui::Checkbox("Planet orbital paths", &g_showPlanetOrbits);
-        ImGui::Checkbox("Spacecraft frame",     &g_showScFrames);
-        ImGui::Checkbox("Spacecraft orbit",     &g_showScOrbits);
+        ImGui::Checkbox("Spacecraft frame",     &g_showSpacecraftFrame);
+        ImGui::Checkbox("Spacecraft orbit",     &g_showSpacecraftOrbit);
 
         ImGui::Spacing();
         ImGui::Checkbox("Show world axes (debug)", &g_showAxes);
         ImGui::Checkbox("Show surface pins (debug)", &g_showPins);
         ImGui::Checkbox("Show SOI spheres (debug)", &g_showSOI);
 
-        // Live camera state — definitive way to tell if camera is moving
+        // Live camera state - definitive way to tell if camera is moving
         {
             float azDeg = glm::degrees(g_camera.azimuth);
             float elDeg = glm::degrees(g_camera.elevation);
@@ -985,9 +1088,14 @@ static void drawLeftSidebar(SolarSystem& sim) {
 // ----------------------------------------------------------------------------
 // Right sidebar: spacecraft in flight with coords, velocity, parent, attitude
 // ----------------------------------------------------------------------------
+// drawRightSidebar
+// Purpose: Render the right UI panel showing in-flight telemetry, propulsion, attitude, and transfer planner.
+// Inputs:  sim - solar system for the parent body name
+// Actions: If a mission is active, displays position, orbital velocity, orbital elements,
+//          engine controls, attitude readout, and the Hohmann burn timer.
 static void drawRightSidebar(SolarSystem& sim) {
-    ImGui::SetNextWindowPos(ImVec2(g_winW - kRightW, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kRightW, (float)g_winH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(g_windowWidth - kRightSidebarWidth, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(kRightSidebarWidth, (float)g_windowHeight), ImGuiCond_Always);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
                            | ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoCollapse;
 
@@ -1019,12 +1127,12 @@ static void drawRightSidebar(SolarSystem& sim) {
 
             ImGui::Spacing();
             // Live orbital elements derived from state vectors
-            OrbElements el = Spacecraft::elementsFromState(
-                g_spacecraft.statePos, g_spacecraft.stateVel, g_spacecraft.muKm3PerS2);
-            if (el.a > 0.0) {
-                ImGui::TextDisabled("a = %.0f km", (float)el.a);
-                ImGui::TextDisabled("e = %.4f",    (float)el.e);
-                ImGui::TextDisabled("i = %.1f deg",(float)el.incDeg);
+            OrbitalElements el = Spacecraft::elementsFromState(
+                g_spacecraft.statePosKm, g_spacecraft.stateVelKmS, g_spacecraft.gravParamKm3S2);
+            if (el.semiMajorAxisKm > 0.0) {
+                ImGui::TextDisabled("a = %.0f km", (float)el.semiMajorAxisKm);
+                ImGui::TextDisabled("e = %.4f",    (float)el.eccentricity);
+                ImGui::TextDisabled("i = %.1f deg",(float)el.inclinationDeg);
                 ImGui::TextDisabled("dir: %s",     el.prograde ? "prograde" : "retrograde");
                 ImGui::TextDisabled("T = %.3f days",(float)el.periodDays);
             } else {
@@ -1084,11 +1192,11 @@ static void drawRightSidebar(SolarSystem& sim) {
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 1.0f, 1.0f), "ATTITUDE (LVLH)");
         ImGui::Separator();
         if (g_missionActive) {
-            glm::vec3 eul = g_spacecraft.getEulerDegreesLvlh();
+            glm::vec3 eul = g_spacecraft.getEulerAnglesLvlhDeg();
             ImGui::Text("Pitch: %+7.2f deg", eul.x);
             ImGui::Text("Yaw:   %+7.2f deg", eul.y);
             ImGui::Text("Roll:  %+7.2f deg", eul.z);
-            ImGui::Text("Rate:  %.4f rad/s", glm::length(g_spacecraft.angularVel));
+            ImGui::Text("Rate:  %.4f rad/s", glm::length(g_spacecraft.angularVelocity));
         } else {
             ImGui::TextDisabled("(no spacecraft)");
         }
@@ -1101,7 +1209,7 @@ static void drawRightSidebar(SolarSystem& sim) {
             if (ImGui::Button("Set Target Orbit...", ImVec2(-1, 0)))
                 g_openHohmannPopup = true;
         }
-        // Burn timer — always displayed; shows "---:--:--" when idle
+        // Burn timer - always displayed; shows "---:--:--" when idle
         {
             int bi = g_hohmann.activeBurn;
             bool planActive = g_hohmann.active && bi < 2 && !g_hohmann.burns[bi].done;
@@ -1146,6 +1254,13 @@ static void drawRightSidebar(SolarSystem& sim) {
     ImGui::End();
 }
 // ----------------------------------------------------------------------------
+// drawPlanetFrames
+// Purpose: Draw a 2D bounding box and name label over each planet in the viewport.
+// Inputs:  sim  - solar system for planet world positions and names
+//          view - camera view matrix
+//          proj - camera projection matrix
+// Actions: Projects each planet's world position to screen space and draws a colored
+//          rectangle and text label using ImGui's foreground draw list.
 static void drawPlanetFrames(SolarSystem& sim, const glm::mat4& view,
                              const glm::mat4& proj) {
     if (!g_showPlanetFrames) return;
@@ -1160,8 +1275,8 @@ static void drawPlanetFrames(SolarSystem& sim, const glm::mat4& view,
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
         if (std::abs(ndc.x) > 1.5f || std::abs(ndc.y) > 1.5f) continue;
 
-        float sx = g_vpX + (ndc.x * 0.5f + 0.5f) * g_vpW;
-        float sy = g_vpY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_vpH;
+        float sx = g_viewportX + (ndc.x * 0.5f + 0.5f) * g_viewportWidth;
+        float sy = g_viewportY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_viewportHeight;
         float box = 18.0f;
         dl->AddRect(ImVec2(sx - box, sy - box), ImVec2(sx + box, sy + box),
                     color, 0.0f, 0, 1.5f);
@@ -1171,18 +1286,24 @@ static void drawPlanetFrames(SolarSystem& sim, const glm::mat4& view,
     }
 }
 
+// drawSpacecraftFrame
+// Purpose: Draw a 2D bounding box and name label over the active spacecraft in the viewport.
+// Inputs:  view - camera view matrix
+//          proj - camera projection matrix
+// Actions: Projects g_spacecraft.worldPosition to screen space and draws a colored rectangle
+//          and spacecraft name using ImGui's foreground draw list.
 static void drawSpacecraftFrame(const glm::mat4& view, const glm::mat4& proj) {
-    if (!g_missionActive || !g_showScFrames) return;
+    if (!g_missionActive || !g_showSpacecraftFrame) return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImU32 color = colFromVec4(g_scFrameColor);
+    ImU32 color = colFromVec4(g_spacecraftFrameColor);
 
-    glm::vec4 clip = proj * view * glm::vec4(g_spacecraft.worldPos, 1.0f);
+    glm::vec4 clip = proj * view * glm::vec4(g_spacecraft.worldPosition, 1.0f);
     if (clip.w <= 0.0f) return;
     glm::vec3 ndc = glm::vec3(clip) / clip.w;
     if (std::abs(ndc.x) > 1.5f || std::abs(ndc.y) > 1.5f) return;
 
-    float sx = g_vpX + (ndc.x * 0.5f + 0.5f) * g_vpW;
-    float sy = g_vpY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_vpH;
+    float sx = g_viewportX + (ndc.x * 0.5f + 0.5f) * g_viewportWidth;
+    float sy = g_viewportY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_viewportHeight;
     float box = 14.0f;
     dl->AddRect(ImVec2(sx - box, sy - box), ImVec2(sx + box, sy + box),
                 color, 0.0f, 0, 1.5f);
@@ -1192,47 +1313,54 @@ static void drawSpacecraftFrame(const glm::mat4& view, const glm::mat4& proj) {
     dl->AddText(ImVec2(sx - ts.x * 0.5f, sy + box + 2.0f), color, name);
 }
 
+// drawSpacecraftOrbit
+// Purpose: Render the spacecraft's current Keplerian orbital ellipse as a 3D line loop.
+// Inputs:  orbitShader - shader program used to draw the orbit line
+//          view        - camera view matrix
+//          proj        - camera projection matrix
+// Actions: Builds a model matrix from the spacecraft's semi-major/minor axes, orbital
+//          frame, and eccentricity, then draws a unit-circle orbit mesh scaled to match.
 static void drawSpacecraftOrbit(Shader& orbitShader,
                                 const glm::mat4& view, const glm::mat4& proj) {
-    if (!g_missionActive || !g_showScOrbits) return;
+    if (!g_missionActive || !g_showSpacecraftOrbit) return;
     if (g_view == ViewMode::Spacecraft) return;
 
     static OrbitMesh scOrbit(1.0f, 128);
 
     const float kmToU = 0.001f;
-    float as_ = g_spacecraft.a * kmToU;
-    float bs_ = g_spacecraft.b * kmToU;
-    float cs_ = as_ * g_spacecraft.e;
+    float semiMajorScene = g_spacecraft.semiMajorAxisKm * kmToU;
+    float semiMinorScene = g_spacecraft.semiMinorAxisKm * kmToU;
+    float focusOffset    = semiMajorScene * g_spacecraft.eccentricity;
 
-    glm::vec3 periDir    = g_spacecraft.orbFrame[0];
-    glm::vec3 normDir    = g_spacecraft.orbFrame[2];
-    glm::vec3 semiMinDir = g_spacecraft.orbFrame[1];
+    glm::vec3 periapsisDir  = g_spacecraft.orbitalFrame[0];
+    glm::vec3 orbitNormDir  = g_spacecraft.orbitalFrame[2];
+    glm::vec3 semiMinorDir  = g_spacecraft.orbitalFrame[1];
 
-    // Parent body position in scene units
-    glm::vec3 parentPos = (g_spacecraft.parentBodyIdx >= 0 &&
-                           (size_t)g_spacecraft.parentBodyIdx < 10)
-        ? glm::vec3(0.0f) : glm::vec3(0.0f);
-    // Look up the actual parent world position from the sim via spacecraft worldPos offset
-    // worldPos = parentPos + localPos, so parentPos = worldPos - localPos
-    parentPos = g_spacecraft.worldPos - g_spacecraft.localPos;
+    // Parent body world position = spacecraft world position minus local offset
+    glm::vec3 parentBodyPos = g_spacecraft.worldPosition - g_spacecraft.localPositionSceneUnits;
 
     glm::mat4 M(1.0f);
-    M[0] = glm::vec4(periDir    * as_, 0.0f);
-    M[1] = glm::vec4(normDir,          0.0f);
-    M[2] = glm::vec4(semiMinDir * bs_, 0.0f);
-    M[3] = glm::vec4(parentPos - cs_ * periDir, 1.0f);
+    M[0] = glm::vec4(periapsisDir  * semiMajorScene, 0.0f);
+    M[1] = glm::vec4(orbitNormDir,                   0.0f);
+    M[2] = glm::vec4(semiMinorDir  * semiMinorScene, 0.0f);
+    M[3] = glm::vec4(parentBodyPos - focusOffset * periapsisDir, 1.0f);
 
     orbitShader.use();
     orbitShader.setMat4("uView",  view);
     orbitShader.setMat4("uProj",  proj);
-    orbitShader.setVec4("uColor", glm::vec4(g_scOrbitColor.x, g_scOrbitColor.y,
-                                            g_scOrbitColor.z, g_scOrbitColor.w));
+    orbitShader.setVec4("uColor", glm::vec4(g_spacecraftOrbitColor.x, g_spacecraftOrbitColor.y,
+                                            g_spacecraftOrbitColor.z, g_spacecraftOrbitColor.w));
     orbitShader.setMat4("uModel", M);
     scOrbit.draw();
 }
 
-// Debug gizmo: draws colored X/Y/Z lines at world origin so the user can
-// visually confirm world space isn't rotating when the camera moves.
+// drawWorldAxes
+// Purpose: Draw colored X/Y/Z axis lines at world origin as a debug gizmo, so the
+//          user can verify world space is not rotating as the camera moves.
+// Inputs:  view - camera view matrix
+//          proj - camera projection matrix
+// Actions: Projects axis endpoints to screen space and draws labeled colored lines
+//          via ImGui's foreground draw list. Axis length scales with camera distance.
 static void drawWorldAxes(const glm::mat4& view, const glm::mat4& proj) {
     if (!g_showAxes) return;
 
@@ -1243,8 +1371,8 @@ static void drawWorldAxes(const glm::mat4& view, const glm::mat4& proj) {
         glm::vec4 clip = proj * view * glm::vec4(wp, 1.0f);
         if (clip.w <= 0.0f) return false;
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        out.x = g_vpX + (ndc.x * 0.5f + 0.5f) * g_vpW;
-        out.y = g_vpY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_vpH;
+        out.x = g_viewportX + (ndc.x * 0.5f + 0.5f) * g_viewportWidth;
+        out.y = g_viewportY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_viewportHeight;
         return true;
     };
 
@@ -1269,12 +1397,15 @@ static void drawWorldAxes(const glm::mat4& view, const glm::mat4& proj) {
     }
 }
 
-// Debug: draw a bright dot on each planet at local coord (radius, 0, 0).
-// This dot is transformed by the planet's FULL model matrix (axial tilt +
-// spin + scale + translate), so if the texture is actually stuck to the
-// mesh, the dot and the underlying texture feature at 0°N/0°E must move
-// together as the camera orbits. If the dot slides across the texture,
-// there's a real bug in the planet's model matrix.
+// drawSurfacePins
+// Purpose: Draw a bright debug dot at the 0N/0E surface point of each planet to verify
+//          that planet textures rotate with the mesh (not independently).
+// Inputs:  sim  - solar system providing planet data and scene scale
+//          view - camera view matrix
+//          proj - camera projection matrix
+// Actions: Reconstructs each planet's full model matrix (translate + tilt + spin + scale),
+//          transforms the local point (radius, 0, 0) to screen space, and draws a cyan
+//          dot via ImGui's foreground draw list.
 static void drawSurfacePins(SolarSystem& sim, const glm::mat4& view,
                             const glm::mat4& proj) {
     if (!g_showPins) return;
@@ -1284,7 +1415,7 @@ static void drawSurfacePins(SolarSystem& sim, const glm::mat4& view,
         const Planet& p = sim.body(i);
 
         // Reconstruct the same model matrix used when the planet was drawn.
-        // Sc * (1,0,0) = (radius, 0, 0) — a point on the equator at prime meridian.
+        // Sc * (1,0,0) = (radius, 0, 0) - a point on the equator at prime meridian.
         float r = sim.planetSceneRadius(i);
         glm::mat4 T  = glm::translate(glm::mat4(1.0f), p.worldPos);
         glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), glm::radians(p.axialTiltDeg),
@@ -1301,19 +1432,24 @@ static void drawSurfacePins(SolarSystem& sim, const glm::mat4& view,
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
         if (std::abs(ndc.x) > 1.0f || std::abs(ndc.y) > 1.0f) continue;
 
-        float sx = g_vpX + (ndc.x * 0.5f + 0.5f) * g_vpW;
-        float sy = g_vpY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_vpH;
+        float sx = g_viewportX + (ndc.x * 0.5f + 0.5f) * g_viewportWidth;
+        float sy = g_viewportY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_viewportHeight;
 
-        // Cyan dot + planet name — big enough to spot clearly.
+        // Cyan dot + planet name - big enough to spot clearly.
         ImU32 col = IM_COL32(80, 240, 240, 255);
         dl->AddCircleFilled(ImVec2(sx, sy), 5.0f, col);
         dl->AddCircle(ImVec2(sx, sy), 7.0f, IM_COL32(0, 0, 0, 200), 0, 1.5f);
     }
 }
 
-// ----------------------------------------------------------------------------
-// Hohmann burn markers — purple X at each maneuver point, projected to screen
-// ----------------------------------------------------------------------------
+// drawHohmannMarkers
+// Purpose: Draw a purple X marker and delta-v label at each upcoming Hohmann burn point
+//          projected onto the viewport.
+// Inputs:  sim  - solar system providing the scene unit conversion factor
+//          view - camera view matrix
+//          proj - camera projection matrix
+// Actions: For each incomplete burn, projects its position (relative to parent body)
+//          to screen space and draws an X, delta-v label, and burn duration hint via ImGui.
 static void drawHohmannMarkers(const SolarSystem& sim,
                                 const glm::mat4& view, const glm::mat4& proj) {
     if (!g_hohmann.active || !g_missionActive) return;
@@ -1321,7 +1457,7 @@ static void drawHohmannMarkers(const SolarSystem& sim,
     const ImU32 col = IM_COL32(180, 80, 255, 230);
 
     // Parent body is at worldPos − localPos in scene units
-    glm::vec3 parentScenePos = g_spacecraft.worldPos - g_spacecraft.localPos;
+    glm::vec3 parentScenePos = g_spacecraft.worldPosition - g_spacecraft.localPositionSceneUnits;
     const float kmToU = sim.kmToSceneUnits();
 
     // Interplanetary: only burn 1 can be shown (burn 2 is at the target planet)
@@ -1338,8 +1474,8 @@ static void drawHohmannMarkers(const SolarSystem& sim,
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
         if (std::abs(ndc.x) > 1.0f || std::abs(ndc.y) > 1.0f) continue;
 
-        float sx = g_vpX + (ndc.x * 0.5f + 0.5f) * g_vpW;
-        float sy = g_vpY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_vpH;
+        float sx = g_viewportX + (ndc.x * 0.5f + 0.5f) * g_viewportWidth;
+        float sy = g_viewportY + (1.0f - (ndc.y * 0.5f + 0.5f)) * g_viewportHeight;
 
         // Purple X
         const float xr = 8.0f;
@@ -1366,10 +1502,16 @@ static void drawHohmannMarkers(const SolarSystem& sim,
     }
 }
 
-// ----------------------------------------------------------------------------
-// SOI wireframe spheres (3 orthogonal circles per body using the orbit shader)
-// ----------------------------------------------------------------------------
-static void renderSOIWireframes(SolarSystem& sim, Shader& orbitShader,
+// renderSOISphereWireframes
+// Purpose: Render sphere-of-influence boundaries as three orthogonal wireframe circles
+//          around each solar system body.
+// Inputs:  sim         - solar system providing planet positions and SOI radii
+//          orbitShader - shader used to draw the circle lines
+//          view        - camera view matrix
+//          proj        - camera projection matrix
+// Actions: For each body with a nonzero SOI radius, draws three unit-circle meshes
+//          scaled and rotated to approximate a sphere wireframe in the XY, XZ, and YZ planes.
+static void renderSOISphereWireframes(SolarSystem& sim, Shader& orbitShader,
                                 const glm::mat4& view, const glm::mat4& proj) {
     if (!g_showSOI) return;
 
@@ -1397,9 +1539,15 @@ static void renderSOIWireframes(SolarSystem& sim, Shader& orbitShader,
     }
 }
 
-// ----------------------------------------------------------------------------
-// Spacecraft render
-// ----------------------------------------------------------------------------
+// renderSpacecraft
+// Purpose: Render the active spacecraft at its current world position and attitude.
+// Inputs:  sphere       - fallback sphere mesh used when no 3D model is loaded
+//          planetShader - phong-lit shader used for both model and sphere rendering
+//          view         - camera view matrix
+//          proj         - camera projection matrix
+// Actions: If a glTF model is loaded, draws it scaled to either real-world or display
+//          size and oriented by the spacecraft's attitude quaternion. Otherwise draws
+//          a gray fallback sphere at the spacecraft's world position.
 static void renderSpacecraft(SphereMesh& sphere, Shader& planetShader,
                              const glm::mat4& view, const glm::mat4& proj) {
     if (!g_missionActive) return;
@@ -1412,7 +1560,7 @@ static void renderSpacecraft(SphereMesh& sphere, Shader& planetShader,
     planetShader.setFloat("uAmbient", 0.18f);
     planetShader.setInt("uTexture", 0);
 
-    glm::mat4 T = glm::translate(glm::mat4(1.0f), g_spacecraft.worldPos);
+    glm::mat4 T = glm::translate(glm::mat4(1.0f), g_spacecraft.worldPosition);
     glm::mat4 Rattitude = glm::mat4_cast(g_spacecraft.attitudeWorld);
 
     if (g_currentModel && g_currentModel->loaded) {
@@ -1452,31 +1600,32 @@ static void renderSpacecraft(SphereMesh& sphere, Shader& planetShader,
     }
 }
 
-// ----------------------------------------------------------------------------
-// Navball (FDAI) rendering — bottom-center sub-viewport
+// renderNavball
+// Purpose: Render the spacecraft attitude navball (FDAI) widget in the bottom-center
+//          of the viewport with LVLH orbital marker overlays and a throttle bar.
+// Inputs:  sphere    - sphere mesh used to draw the navball globe
+//          navShader - navball-specific shader that colors hemispheres by orbital orientation
+// Actions: Renders the sphere in a fixed sub-viewport with the spacecraft's attitude
+//          applied, then draws PRO/RET/RAD/ARAD/N/-N markers, a center crosshair,
+//          attitude readout, and an interactive throttle slider via ImGui.
 //
-// Convention (matches LVLH frame):
+// Frame convention (matches LVLH):
 //   navball +X (right on screen) = body +X
-//   navball +Y (up on screen)    = body +Y  (radial-out when unrotated)
-//   navball +Z (toward viewer)   = body -Z  (nose / prograde when unrotated)
-//
-// The model matrix is a left-handed frame (det=-1), so face-culling is disabled.
-// Hemisphere: blue = radially away from the orbited body (RAD),
-//            orange = radially toward it (ARAD).
-// Orbital markers (PRO/RET/RAD/ARAD/N/-N) are drawn via ImGui on top.
-// ----------------------------------------------------------------------------
-static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
+//   navball +Y (up on screen)    = body +Y (radial-out when unrotated)
+//   navball +Z (toward viewer)   = body -Z (nose/prograde when unrotated)
+// Hemisphere: blue = radially away from the orbited body, orange = radially toward it.
+static void renderNavball(SphereMesh& sphere, Shader& navShader) {
     if (!g_missionActive) return;
 
     const int   size = 240;
     const float Rpx  = size * 0.425f;   // sphere radius in screen pixels
 
     // Navball center in screen space
-    int   cx_vp = g_vpX + g_vpW / 2;
+    int   cx_vp = g_viewportX + g_viewportWidth / 2;
     int   vx    = cx_vp - size / 2;
-    int   vy_gl = g_vpY + 16;           // GL Y is bottom-up from viewport bottom
+    int   vy_gl = g_viewportY + 16;           // GL Y is bottom-up from viewport bottom
     float scx   = (float)cx_vp;
-    float scy   = (float)(g_winH - vy_gl - size / 2); // ImGui Y is top-down
+    float scy   = (float)(g_windowHeight - vy_gl - size / 2); // ImGui Y is top-down
 
     // ---- Spacecraft body axes in world space ----
     glm::mat3 Rw    = glm::mat3_cast(g_spacecraft.attitudeWorld);
@@ -1485,11 +1634,11 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
     glm::vec3 bFwd   = -Rw[2];          // body -Z  = nose (toward navball viewer)
 
     // ---- Orbital frame vectors in world space ----
-    glm::vec3 radWorld  = (glm::length(g_spacecraft.localPos) > 1e-9f)
-                        ? glm::normalize(g_spacecraft.localPos)
+    glm::vec3 radWorld  = (glm::length(g_spacecraft.localPositionSceneUnits) > 1e-9f)
+                        ? glm::normalize(g_spacecraft.localPositionSceneUnits)
                         : glm::vec3(0, 1, 0);
-    glm::vec3 proWorld  = (glm::length(g_spacecraft.localVel) > 1e-9f)
-                        ? g_spacecraft.localVel     // already normalised
+    glm::vec3 proWorld  = (glm::length(g_spacecraft.localVelocityDir) > 1e-9f)
+                        ? g_spacecraft.localVelocityDir     // already normalised
                         : glm::vec3(1, 0, 0);
     glm::vec3 normWorld = glm::normalize(glm::cross(radWorld, proWorld));
     // Re-orthogonalize prograde against computed normal so the triad is clean
@@ -1510,7 +1659,7 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
     // The sphere sits fixed in body frame.  The camera is at (0,0,2.5) looking
     // toward origin, so model +Z (body nose) always maps to the screen centre.
     // Orbital-frame vectors (uRadPole, uProDir) are passed in body-frame
-    // coordinates and drive all colouring — exactly mirroring the Python
+    // coordinates and drive all colouring - exactly mirroring the Python
     // per-pixel approach where (lx,ly,lz) are already in body frame.
     glm::mat4 navModel(1.0f);
 
@@ -1550,7 +1699,7 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
     // ---- ImGui overlay: bezel, markers, crosshair ----
     ImDrawList* dl = ImGui::GetForegroundDrawList();
 
-    // Bezel rings — thick annular ring that frames the sphere without covering it
+    // Bezel rings - thick annular ring that frames the sphere without covering it
     dl->AddCircle(ImVec2(scx, scy), Rpx + 7.0f, IM_COL32(20, 20, 20, 255), 80, 14.0f);
     dl->AddCircle(ImVec2(scx, scy), Rpx + 9.0f, IM_COL32(90, 90, 90, 255), 80, 3.0f);
     dl->AddCircle(ImVec2(scx, scy), Rpx + 1.5f, IM_COL32(50, 50, 50, 255), 80, 2.0f);
@@ -1603,13 +1752,13 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
 
         const float r0 = 9.0f;
         switch (m.style) {
-        case 0: // PRO — circle + 3 tick marks (up, left, right)
+        case 0: // PRO - circle + 3 tick marks (up, left, right)
             dl->AddCircle(ImVec2(px, py), r0, col, 32, 2.0f);
             dl->AddLine(ImVec2(px, py - r0),        ImVec2(px,        py - r0 - 7), col, 2.0f);
             dl->AddLine(ImVec2(px - r0, py),        ImVec2(px - r0 - 7, py),        col, 2.0f);
             dl->AddLine(ImVec2(px + r0, py),        ImVec2(px + r0 + 7, py),        col, 2.0f);
             break;
-        case 1: // RET — circle + X + two tail lines
+        case 1: // RET - circle + X + two tail lines
             dl->AddCircle(ImVec2(px, py), r0, col, 32, 2.0f);
             { float d = r0 * 0.68f;
               dl->AddLine(ImVec2(px-d, py-d), ImVec2(px+d, py+d), col, 2.0f);
@@ -1617,7 +1766,7 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
             dl->AddLine(ImVec2(px,      py + r0),     ImVec2(px + 7, py + r0 + 10), col, 2.0f);
             dl->AddLine(ImVec2(px,      py + r0),     ImVec2(px - 7, py + r0 + 10), col, 2.0f);
             break;
-        case 2: // RAD OUT — circle + center dot + 4 diagonal ticks
+        case 2: // RAD OUT - circle + center dot + 4 diagonal ticks
             dl->AddCircle(ImVec2(px, py), r0, col, 32, 2.0f);
             dl->AddCircleFilled(ImVec2(px, py), 2.5f, col);
             for (float deg : {45.0f, 135.0f, 225.0f, 315.0f}) {
@@ -1627,18 +1776,18 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
                             ImVec2(px + co*(r0+8), py + si*(r0+8)), col, 2.0f);
             }
             break;
-        case 3: // ARAD — circle + X only
+        case 3: // ARAD - circle + X only
             dl->AddCircle(ImVec2(px, py), r0, col, 32, 2.0f);
             { float d = r0 * 0.68f;
               dl->AddLine(ImVec2(px-d, py-d), ImVec2(px+d, py+d), col, 2.0f);
               dl->AddLine(ImVec2(px-d, py+d), ImVec2(px+d, py-d), col, 2.0f); }
             break;
-        case 4: // NORMAL — triangle pointing up
+        case 4: // NORMAL - triangle pointing up
             dl->AddTriangle(ImVec2(px,      py - r0 - 2),
                             ImVec2(px - r0, py + 6),
                             ImVec2(px + r0, py + 6), col, 2.0f);
             break;
-        case 5: // ANTI-NORMAL — triangle pointing down
+        case 5: // ANTI-NORMAL - triangle pointing down
             dl->AddTriangle(ImVec2(px,      py + r0 + 2),
                             ImVec2(px - r0, py - 6),
                             ImVec2(px + r0, py - 6), col, 2.0f);
@@ -1673,7 +1822,7 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
 
     dl->PopClipRect();
 
-    // Center crosshair — fixed, always on top, represents spacecraft nose
+    // Center crosshair - fixed, always on top, represents spacecraft nose
     const float cr = 8.0f;
     const ImU32 wh = IM_COL32(240, 240, 240, 255);
     dl->AddLine(ImVec2(scx - cr*2.2f, scy), ImVec2(scx - cr, scy), wh, 2.0f);
@@ -1683,7 +1832,7 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
     dl->AddCircle(ImVec2(scx, scy), cr, wh, 20, 2.0f);
 
     // Attitude readout above the navball
-    glm::vec3 eul = g_spacecraft.getEulerDegreesLvlh();
+    glm::vec3 eul = g_spacecraft.getEulerAnglesLvlhDeg();
     char buf[80];
     std::snprintf(buf, sizeof(buf), "P%+5.1f  Y%+5.1f  R%+5.1f", eul.x, eul.y, eul.z);
     ImVec2 ts = ImGui::CalcTextSize(buf);
@@ -1784,9 +1933,14 @@ static void renderFDAI(SphereMesh& sphere, Shader& navShader) {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Input: attitude controls, escape
-// ----------------------------------------------------------------------------
+// handleKeys
+// Purpose: Process keyboard input each frame for spacecraft attitude control, engine
+//          toggle, throttle adjustment, and application exit.
+// Inputs:  w     - GLFW window handle used to query key states
+//          dtSec - real elapsed time in seconds since last frame
+// Actions: Arrow keys apply pitch/yaw torque; Q/E apply roll torque; X kills all
+//          rotation; F toggles the engine; Z/C ramp throttle up/down. Escape closes
+//          the window. Skips spacecraft controls if ImGui has keyboard focus.
 static bool g_escPrev = false;
 static void handleKeys(GLFWwindow* w, float dtSec) {
     bool escNow = glfwGetKey(w, GLFW_KEY_ESCAPE) == GLFW_PRESS;
@@ -1845,10 +1999,10 @@ int main() {
     glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
-    g_window = glfwCreateWindow(g_winW, g_winH, "Spacecraft Control System Simulation", nullptr, nullptr);
+    g_window = glfwCreateWindow(g_windowWidth, g_windowHeight, "Spacecraft Control System Simulation", nullptr, nullptr);
     if (!g_window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(g_window);
-    glfwGetFramebufferSize(g_window, &g_winW, &g_winH);
+    glfwGetFramebufferSize(g_window, &g_windowWidth, &g_windowHeight);
 
     glfwSetFramebufferSizeCallback(g_window, framebufferSizeCallback);
     glfwSetCursorPosCallback   (g_window, cursorPosCallback);
@@ -1891,7 +2045,7 @@ int main() {
 
     // ---- Fetch real planet positions from JPL Horizons (one-time, blocking) ----
     // If the network is down or any call fails, we keep the default analytic
-    // positions for those bodies — the sim still runs.
+    // positions for those bodies - the sim still runs.
     HorizonsApi::initGlobal();
     {
         // Use today's date (UTC). You could expose this as a user setting.
@@ -1912,7 +2066,7 @@ int main() {
             size_t seeded = sim.seedFromRealCoords(posMap);
             std::cout << "[Horizons] Seeded " << seeded << " planet(s) with real positions.\n";
         } else {
-            std::cout << "[Horizons] Offline / all fetches failed — using analytic positions.\n";
+            std::cout << "[Horizons] Offline / all fetches failed - using analytic positions.\n";
         }
     }
 
@@ -1929,10 +2083,10 @@ int main() {
         handleKeys(g_window, dt);
 
         // Compute viewport region (center of window, between sidebars)
-        g_vpX = (int)kLeftW;
-        g_vpY = 0;
-        g_vpW = std::max(1, g_winW - (int)kLeftW - (int)kRightW);
-        g_vpH = g_winH;
+        g_viewportX = (int)kLeftSidebarWidth;
+        g_viewportY = 0;
+        g_viewportWidth = std::max(1, g_windowWidth - (int)kLeftSidebarWidth - (int)kRightSidebarWidth);
+        g_viewportHeight = g_windowHeight;
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -1963,18 +2117,18 @@ int main() {
         trackCameraForView(sim);
 
         // Clear whole window
-        glViewport(0, 0, g_winW, g_winH);
+        glViewport(0, 0, g_windowWidth, g_windowHeight);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // 3D scene in center viewport
-        glViewport(g_vpX, g_vpY, g_vpW, g_vpH);
-        float aspect = (g_vpH > 0) ? float(g_vpW) / float(g_vpH) : 1.0f;
+        glViewport(g_viewportX, g_viewportY, g_viewportWidth, g_viewportHeight);
+        float aspect = (g_viewportHeight > 0) ? float(g_viewportWidth) / float(g_viewportHeight) : 1.0f;
 
-        // Adaptive near/far based on focus distance (needed for real-scale close-ups)
-        float nearP = std::max(0.0001f, g_camera.distance * 0.001f);
-        float farP  = std::max(1.0e6f,  g_camera.distance * 1.0e6f);
+        // Adaptive near/far clip planes based on focus distance (needed for real-scale close-ups)
+        float nearPlane = std::max(0.0001f, g_camera.distance * 0.001f);
+        float farPlane  = std::max(1.0e6f,  g_camera.distance * 1.0e6f);
         glm::mat4 view = g_camera.getView();
-        glm::mat4 proj = g_camera.getProj(aspect, nearP, farP);
+        glm::mat4 proj = g_camera.getProj(aspect, nearPlane, farPlane);
 
         // Skybox (Milky Way equirectangular panorama)
         glDepthFunc(GL_LEQUAL); glDepthMask(GL_FALSE);
@@ -1999,13 +2153,13 @@ int main() {
                                           g_planetOrbitColor.z, g_planetOrbitColor.w));
         sim.render(planetShader, sunShader, ringShader, orbitShader, view, proj);
         if (!settingsOpen) {
-            renderSOIWireframes(sim, orbitShader, view, proj);
+            renderSOISphereWireframes(sim, orbitShader, view, proj);
             drawSpacecraftOrbit(orbitShader, view, proj);
         }
         renderSpacecraft(spacecraftMesh, planetShader, view, proj);
 
         // Restore full-window viewport for overlays and UI
-        glViewport(0, 0, g_winW, g_winH);
+        glViewport(0, 0, g_windowWidth, g_windowHeight);
 
         if (!settingsOpen) {
             drawPlanetFrames(sim, view, proj);
@@ -2013,7 +2167,7 @@ int main() {
             drawWorldAxes(view, proj);
             drawSurfacePins(sim, view, proj);
             drawHohmannMarkers(sim, view, proj);
-            renderFDAI(spacecraftMesh, fdaiShader);
+            renderNavball(spacecraftMesh, fdaiShader);
         }
         drawLeftSidebar(sim);
         drawRightSidebar(sim);

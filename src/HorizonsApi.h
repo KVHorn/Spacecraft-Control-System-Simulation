@@ -20,15 +20,20 @@ struct PlanetState {
     double vxKmS = 0.0, vyKmS = 0.0, vzKmS = 0.0; // velocity km/s
 };
 
-// Call once at app startup / shutdown for libcurl global init.
+// Call once at app startup to initialize libcurl global state.
 void initGlobal();
+// Call once at app shutdown to clean up libcurl global state.
 void shutdownGlobal();
 
-// Fetch state for a single planet (by Horizons object id, e.g. "399" for Earth)
+// Fetch the heliocentric state vector for one planet identified by its Horizons
+// object ID (e.g. "399" for Earth) at the given UTC timestamp ("YYYY-MM-DD HH:MM").
+// Writes results to out and returns true on success, false on network or parse failure.
 bool fetchOne(const std::string& planetId, const std::string& timestamp,
               PlanetState& out);
 
-// Fetch all 8 planets. Keys are "Mercury", "Venus", ..., "Neptune".
+// Fetch state vectors for all 8 planets at the given UTC timestamp.
+// Keys in the returned map are planet names ("Mercury", "Venus", ..., "Neptune").
+// Planets that fail to fetch are absent from the map; callers can fall back to analytic positions.
 std::unordered_map<std::string, PlanetState> fetchAllPlanets(
     const std::string& timestamp);
 

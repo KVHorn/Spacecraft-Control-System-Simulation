@@ -93,9 +93,12 @@ public:
                 const glm::mat4& view,
                 const glm::mat4& proj);
 
+    // Toggle between COMPACT (visual) and REALISTIC (true proportional) scale modes.
     void toggleScale();
+    // Returns the currently active scale mode.
     ScaleMode mode() const { return scaleMode; }
 
+    // Enable or disable rendering of planetary orbit path lines.
     void setShowOrbits(bool b) { showOrbits = b; }
     bool getShowOrbits() const { return showOrbits; }
 
@@ -115,6 +118,7 @@ public:
     void setSunBrightness(float v)         { sunBrightness     = v; }
     void setPlanetOrbitColor(glm::vec4 c)  { planetOrbitColor  = c; }
 
+    // Returns the Sun's scene-space position (always the world origin).
     glm::vec3 sunPosition() const { return glm::vec3(0.0f); }
 
     // Number of bodies and access by index (0 = Sun, 1..8 = Mercury..Neptune).
@@ -160,10 +164,14 @@ private:
     float     sunBrightness     = 1.6f;
     glm::vec4 planetOrbitColor  = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
 
-    // Helpers that apply the current scale mode.
+    // Scene-space render radius of a non-Sun planet, scaled by planetSizeMul.
     float planetRenderRadius(const Planet& p) const;
+    // Scene-space orbit distance for a planet, compressed in COMPACT mode.
     float planetOrbitDistance(const Planet& p) const;
+    // Scene-space render radius of the Sun, using a fixed size in COMPACT mode.
     float sunRenderRadius(const Planet& sun) const;
+    // Scene-space render radius of a moon, enlarged in COMPACT mode for visibility.
     float moonRenderRadius(const Moon& m) const;
+    // Scene-space orbit radius of a moon around its parent, pushed out in COMPACT mode.
     float moonOrbitDistance(const Moon& m, const Planet& parent) const;
 };

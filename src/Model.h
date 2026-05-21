@@ -31,14 +31,16 @@ public:
 
     ~Model();
 
-    // Load a .glb or .gltf file. Returns true on success.
+    // Load a .glb or .gltf file, uploading geometry and textures to the GPU.
+    // flipUVs flips the V coordinate (needed for some Earth exports). Returns true on success.
     bool loadFromFile(const std::string& path, bool flipUVs = false);
 
-    // Draw all primitives. The caller sets uModel/uView/uProj/lighting
-    // uniforms on the planet shader BEFORE this; this binds per-primitive
-    // transforms as (parentModel * bakedTransform) and the texture.
+    // Draw all primitives. The caller sets uModel/uView/uProj/lighting uniforms on
+    // planetShader before calling; this binds per-primitive transforms as
+    // (parentModel * bakedTransform) and the primitive's base-color texture.
     void draw(Shader& planetShader, const glm::mat4& parentModel) const;
 
 private:
+    // Delete all GPU resources and reset the model to an unloaded state.
     void clear();
 };

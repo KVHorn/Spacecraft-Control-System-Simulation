@@ -15,20 +15,33 @@ using nlohmann::json;
 
 namespace HorizonsApi {
 
-static bool g_curlInited = false;
+static bool g_curlInitialized = false;
 
+// initGlobal
+// Purpose: Initialize libcurl's global state. Must be called once before any fetch operations.
+// Actions: Calls curl_global_init if not already initialized. Safe to call more than once.
 void initGlobal() {
-    if (g_curlInited) return;
+    if (g_curlInitialized) return;
     curl_global_init(CURL_GLOBAL_DEFAULT);
-    g_curlInited = true;
+    g_curlInitialized = true;
 }
 
+// shutdownGlobal
+// Purpose: Clean up libcurl's global state. Should be called once at application shutdown.
+// Actions: Calls curl_global_cleanup if libcurl was previously initialized.
 void shutdownGlobal() {
-    if (!g_curlInited) return;
+    if (!g_curlInitialized) return;
     curl_global_cleanup();
-    g_curlInited = false;
+    g_curlInitialized = false;
 }
 
+// writeCallback
+// Purpose: libcurl write callback that appends received HTTP response bytes to a std::string.
+// Inputs:  contents - pointer to the newly received data
+//          size     - always 1 (libcurl convention)
+//          nmemb    - number of bytes received
+//          userp    - pointer to the std::string accumulation buffer
+// Returns: Number of bytes consumed (must equal size * nmemb to signal success to libcurl).
 static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t total = size * nmemb;
     std::string* out = static_cast<std::string*>(userp);
@@ -36,6 +49,11 @@ static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* use
     return total;
 }
 
+// urlEncode
+// Purpose: Percent-encode a string for safe inclusion in a URL query parameter.
+// Inputs:  curl  - an active CURL handle (required by curl_easy_escape)
+//          value - the raw string to encode
+// Returns: URL-encoded copy of value. Throws std::runtime_error if encoding fails.
 static std::string urlEncode(CURL* curl, const std::string& value) {
     char* enc = curl_easy_escape(curl, value.c_str(), (int)value.length());
     if (!enc) throw std::runtime_error("curl_easy_escape failed");
@@ -44,6 +62,11 @@ static std::string urlEncode(CURL* curl, const std::string& value) {
     return r;
 }
 
+// httpGet
+// Purpose: Perform a blocking HTTP GET request and return the response body as a string.
+// Inputs:  url - fully-formed URL to fetch
+// Returns: Response body string on HTTP 200. Throws std::runtime_error on curl error or
+//          non-200 HTTP status.
 static std::string httpGet(const std::string& url) {
     CURL* curl = curl_easy_init();
     if (!curl) throw std::runtime_error("curl_easy_init failed");
@@ -72,6 +95,13 @@ static std::string httpGet(const std::string& url) {
     return body;
 }
 
+// buildUrl
+// Purpose: Construct a fully URL-encoded Horizons API query for a planet's state vector.
+// Inputs:  planetId  - Horizons object ID (e.g. "399" for Earth)
+//          startTime - UTC start time in "YYYY-MM-DD HH:MM" format
+// Returns: Complete Horizons API URL with all parameters percent-encoded.
+// Actions: Adds 1 day to startTime for the stop time, assembles key-value parameter pairs
+//          for vector ephemeris output in KM-S units relative to the Sun barycenter.
 static std::string buildUrl(const std::string& planetId,
                             const std::string& startTime) {
     const std::string base = "https://ssd.jpl.nasa.gov/api/horizons.api";
@@ -117,8 +147,13 @@ static std::string buildUrl(const std::string& planetId,
     return url.str();
 }
 
-// Parse a line like "2460387.500, A.D. 2026-Mar-17 00:00, X, Y, Z, VX, VY, VZ, LT, RG, RR"
-// With VEC_TABLE=3 we get: JD, calendar, X, Y, Z, VX, VY, VZ (+ extras)
+// parseResult
+// Purpose: Parse the $$SOE...$$EOE data block from a Horizons API response and extract
+//          position and velocity state vectors for the first epoch.
+// Inputs:  text - raw Horizons API response text containing the ephemeris block
+// Outputs: st   - populated with xKm/yKm/zKm and vxKmS/vyKmS/vzKmS from the first row
+// Returns: true if parsing succeeded, false if the data block was missing or malformed.
+// Format:  VEC_TABLE=3 CSV row: JD, calendar, X, Y, Z, VX, VY, VZ [, extras]
 static bool parseResult(const std::string& text, PlanetState& st) {
     std::regex blockRe(R"(\$\$SOE([\s\S]*?)\$\$EOE)");
     std::smatch m;
@@ -153,6 +188,13 @@ static bool parseResult(const std::string& text, PlanetState& st) {
     return true;
 }
 
+// fetchOne
+// Purpose: Fetch the heliocentric J2000 state vector for one solar system body from
+//          the JPL Horizons web API.
+// Inputs:  planetId  - Horizons object ID string (e.g. "399" for Earth)
+//          timestamp - UTC time string in "YYYY-MM-DD HH:MM" format
+// Outputs: out - filled with position (km) and velocity (km/s) on success
+// Returns: true if the fetch and parse succeeded; false otherwise (error printed to stderr).
 bool fetchOne(const std::string& planetId, const std::string& timestamp,
               PlanetState& out) {
     try {
@@ -168,6 +210,11 @@ bool fetchOne(const std::string& planetId, const std::string& timestamp,
     }
 }
 
+// fetchAllPlanets
+// Purpose: Fetch heliocentric J2000 state vectors for all 8 planets from JPL Horizons.
+// Inputs:  timestamp - UTC time string in "YYYY-MM-DD HH:MM" format
+// Returns: Map from planet name (e.g. "Earth") to PlanetState. Planets whose fetches
+//          fail are omitted from the map so callers can fall back to analytic positions.
 std::unordered_map<std::string, PlanetState> fetchAllPlanets(
     const std::string& timestamp) {
     std::unordered_map<std::string, PlanetState> result;

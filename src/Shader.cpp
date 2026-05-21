@@ -3,6 +3,10 @@
 #include <sstream>
 #include <iostream>
 
+// readFile
+// Purpose: Read the entire contents of a text file into a string.
+// Inputs:  path - file path to open
+// Returns: File contents as a string, or empty string if the file could not be opened.
 static std::string readFile(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
@@ -14,6 +18,12 @@ static std::string readFile(const std::string& path) {
     return ss.str();
 }
 
+// compileStage
+// Purpose: Compile a single OpenGL shader stage (vertex or fragment).
+// Inputs:  type  - GL_VERTEX_SHADER or GL_FRAGMENT_SHADER
+//          src   - GLSL source code string
+//          label - filename or identifier used in error messages
+// Returns: OpenGL shader object handle. Logs a compile error if compilation fails.
 static GLuint compileStage(GLenum type, const std::string& src, const std::string& label) {
     GLuint s = glCreateShader(type);
     const char* c = src.c_str();
@@ -30,6 +40,12 @@ static GLuint compileStage(GLenum type, const std::string& src, const std::strin
     return s;
 }
 
+// Shader::Shader
+// Purpose: Compile vertex and fragment shader source files and link them into a program.
+// Inputs:  vertPath - path to the GLSL vertex shader source file
+//          fragPath - path to the GLSL fragment shader source file
+// Actions: Reads both source files, compiles each stage, links into a program stored in id,
+//          then deletes the intermediate shader objects. Logs errors on failure.
 Shader::Shader(const std::string& vertPath, const std::string& fragPath) {
     std::string vsrc = readFile(vertPath);
     std::string fsrc = readFile(fragPath);
@@ -55,27 +71,60 @@ Shader::Shader(const std::string& vertPath, const std::string& fragPath) {
     glDeleteShader(fs);
 }
 
+// Shader::~Shader
+// Purpose: Delete the OpenGL shader program when the Shader object is destroyed.
 Shader::~Shader() {
     if (id) glDeleteProgram(id);
 }
 
+// Shader::use
+// Purpose: Bind this shader program as the active OpenGL program for subsequent draws.
 void Shader::use() const { glUseProgram(id); }
 
-void Shader::setInt(const std::string& n, int v) const {
-    glUniform1i(glGetUniformLocation(id, n.c_str()), v);
+// Shader::setInt
+// Purpose: Set an integer uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          value       - integer value to upload
+void Shader::setInt(const std::string& uniformName, int value) const {
+    glUniform1i(glGetUniformLocation(id, uniformName.c_str()), value);
 }
-void Shader::setFloat(const std::string& n, float v) const {
-    glUniform1f(glGetUniformLocation(id, n.c_str()), v);
+
+// Shader::setFloat
+// Purpose: Set a float uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          value       - float value to upload
+void Shader::setFloat(const std::string& uniformName, float value) const {
+    glUniform1f(glGetUniformLocation(id, uniformName.c_str()), value);
 }
-void Shader::setVec3(const std::string& n, const glm::vec3& v) const {
-    glUniform3fv(glGetUniformLocation(id, n.c_str()), 1, &v[0]);
+
+// Shader::setVec3
+// Purpose: Set a vec3 uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          value       - 3-component float vector to upload
+void Shader::setVec3(const std::string& uniformName, const glm::vec3& value) const {
+    glUniform3fv(glGetUniformLocation(id, uniformName.c_str()), 1, &value[0]);
 }
-void Shader::setVec4(const std::string& n, const glm::vec4& v) const {
-    glUniform4fv(glGetUniformLocation(id, n.c_str()), 1, &v[0]);
+
+// Shader::setVec4
+// Purpose: Set a vec4 uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          value       - 4-component float vector to upload
+void Shader::setVec4(const std::string& uniformName, const glm::vec4& value) const {
+    glUniform4fv(glGetUniformLocation(id, uniformName.c_str()), 1, &value[0]);
 }
-void Shader::setMat3(const std::string& n, const glm::mat3& m) const {
-    glUniformMatrix3fv(glGetUniformLocation(id, n.c_str()), 1, GL_FALSE, &m[0][0]);
+
+// Shader::setMat3
+// Purpose: Set a mat3 uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          matrix      - 3x3 column-major float matrix to upload
+void Shader::setMat3(const std::string& uniformName, const glm::mat3& matrix) const {
+    glUniformMatrix3fv(glGetUniformLocation(id, uniformName.c_str()), 1, GL_FALSE, &matrix[0][0]);
 }
-void Shader::setMat4(const std::string& n, const glm::mat4& m) const {
-    glUniformMatrix4fv(glGetUniformLocation(id, n.c_str()), 1, GL_FALSE, &m[0][0]);
+
+// Shader::setMat4
+// Purpose: Set a mat4 uniform in the shader program.
+// Inputs:  uniformName - GLSL uniform variable name
+//          matrix      - 4x4 column-major float matrix to upload
+void Shader::setMat4(const std::string& uniformName, const glm::mat4& matrix) const {
+    glUniformMatrix4fv(glGetUniformLocation(id, uniformName.c_str()), 1, GL_FALSE, &matrix[0][0]);
 }

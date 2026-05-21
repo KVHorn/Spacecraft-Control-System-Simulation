@@ -19,13 +19,19 @@ public:
 
     OrbitCamera() { update(); }
 
+    // Recompute position and forward vector from focus, distance, azimuth, and elevation.
     void update();
+    // Returns a view matrix looking from position toward focus.
     glm::mat4 getView() const;
-    glm::mat4 getProj(float aspect, float nearP, float farP) const;
+    // Returns a perspective projection matrix for the given aspect ratio and clip planes.
+    glm::mat4 getProj(float aspect, float nearPlane, float farPlane) const;
 
+    // Rotate the camera by a mouse drag delta (pixels).
     void rotate(float dxPixels, float dyPixels);
+    // Zoom in or out by a number of scroll wheel ticks (positive = zoom in).
     void zoom(float scrollTicks);
 
+    // Move the camera's focus point and optionally reset the viewing angles.
     void setFocus(const glm::vec3& newFocus, float newDistance,
                   bool resetAngles = false,
                   float azDeg = 0.0f, float elDeg = 45.0f);

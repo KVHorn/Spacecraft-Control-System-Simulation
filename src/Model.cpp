@@ -17,8 +17,13 @@
 #include <functional>
 #include <cmath>
 
+// Model::~Model
+// Purpose: Clean up all GPU resources owned by this model.
 Model::~Model() { clear(); }
 
+// Model::clear
+// Purpose: Delete all VAOs, VBOs, EBOs, and GL textures, then reset all fields so the
+//          model can be reused or safely destroyed.
 void Model::clear() {
     for (auto& p : primitives) {
         if (p.vao) glDeleteVertexArrays(1, &p.vao);
@@ -32,7 +37,11 @@ void Model::clear() {
     loaded = false;
 }
 
-// Helper: compute a local transform from a glTF node
+// nodeLocalMatrix
+// Purpose: Compute the local-space transform matrix for a glTF scene node.
+// Inputs:  node - a tinygltf node that may carry a 4x4 matrix or TRS decomposition
+// Returns: 4x4 transform matrix; uses the node's matrix field directly if present,
+//          otherwise composes translation * rotation * scale from their individual fields.
 static glm::mat4 nodeLocalMatrix(const tinygltf::Node& node) {
     if (node.matrix.size() == 16) {
         glm::mat4 m(1.0f);
@@ -60,7 +69,10 @@ static glm::mat4 nodeLocalMatrix(const tinygltf::Node& node) {
     return T * R * S;
 }
 
-// Helper: upload a glTF image to a GL texture
+// uploadImage
+// Purpose: Upload a decoded glTF image to a new OpenGL 2D texture with mipmaps.
+// Inputs:  img - tinygltf image containing width, height, component count, and raw pixel data
+// Returns: GL texture handle, or 0 if the image data is empty or has invalid dimensions.
 static GLuint uploadImage(const tinygltf::Image& img) {
     if (img.width <= 0 || img.height <= 0 || img.image.empty()) return 0;
     GLuint tex = 0;
@@ -82,7 +94,15 @@ static GLuint uploadImage(const tinygltf::Image& img) {
     return tex;
 }
 
-// Helper: get a pointer + stride + count for an accessor
+// accessorData
+// Purpose: Resolve a glTF accessor index to a raw byte pointer with stride and element count.
+// Inputs:  m       - the tinygltf model containing all accessors, buffer views, and buffers
+//          accIdx  - index of the accessor to resolve
+// Outputs: stride      - byte stride between consecutive elements
+//          count       - number of elements in the accessor
+//          compsOut    - number of scalar components per element (1/2/3/4)
+//          compTypeOut - GL component type (e.g., TINYGLTF_COMPONENT_TYPE_FLOAT)
+// Returns: Pointer to the first byte of the accessor's data in the underlying buffer.
 static const unsigned char* accessorData(const tinygltf::Model& m, int accIdx,
                                          size_t& stride, size_t& count,
                                          int& compsOut, int& compTypeOut) {
@@ -113,6 +133,14 @@ static const unsigned char* accessorData(const tinygltf::Model& m, int accIdx,
     return buf.data.data() + bv.byteOffset + acc.byteOffset;
 }
 
+// Model::loadFromFile
+// Purpose: Parse a .gltf or .glb file and upload all geometry and textures to the GPU.
+// Inputs:  path     - file path of the glTF asset to load
+//          flipUVs  - if true, flips the V texture coordinate (needed for some exporters)
+// Returns: true on success; false if loading or parsing fails (error printed to stderr).
+// Actions: Clears any existing data, loads via tinygltf, uploads images, walks the scene
+//          graph to build interleaved vertex buffers per primitive (pos/norm/uv), optionally
+//          uploads index buffers, resolves materials, and computes modelRadius from the AABB.
 bool Model::loadFromFile(const std::string& path, bool flipUVs) {
     clear();
 
@@ -313,11 +341,19 @@ bool Model::loadFromFile(const std::string& path, bool flipUVs) {
     return true;
 }
 
+// Model::draw
+// Purpose: Draw every primitive in the model using the provided planet shader.
+// Inputs:  planetShader - shader with uModel/uNormalMat/uTexture uniforms already bound
+//          parentModel  - parent transform; each primitive's model matrix =
+//                         parentModel * primitive.bakedTransform
+// Actions: Iterates all primitives, computes the full model matrix and normal matrix,
+//          binds the base-color texture (or whiteTex fallback), and issues a draw call.
+//          Face culling is temporarily disabled to handle double-sided glTF materials.
 void Model::draw(Shader& planetShader, const glm::mat4& parentModel) const {
     planetShader.setInt("uTexture", 0);
 
     // The glTF materials exported from UE5 set "doubleSided": true and their
-    // triangle winding doesn't match what back-face culling expects — which
+    // triangle winding doesn't match what back-face culling expects - which
     // results in only the FAR hemisphere being visible (inside-out look).
     // Temporarily disable culling while drawing glTF primitives and restore.
     GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);

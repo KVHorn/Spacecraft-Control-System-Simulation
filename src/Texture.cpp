@@ -2,6 +2,10 @@
 #include <stb_image.h>
 #include <iostream>
 
+// makeSolidTexture
+// Purpose: Create a 1x1 RGB OpenGL texture filled with a single color.
+// Inputs:  r, g, b - 8-bit color channel values for the solid fill
+// Returns: GL texture handle with nearest-neighbor filtering and GL_REPEAT wrap.
 GLuint makeSolidTexture(unsigned char r, unsigned char g, unsigned char b) {
     GLuint tex;
     glGenTextures(1, &tex);
@@ -15,6 +19,14 @@ GLuint makeSolidTexture(unsigned char r, unsigned char g, unsigned char b) {
     return tex;
 }
 
+// loadTexture
+// Purpose: Load an image file into an OpenGL 2D texture with mipmaps and anisotropic filtering.
+// Inputs:  path - file path to the image (JPEG, PNG, etc.)
+//          srgb - if true, uses GL_SRGB/GL_SRGB_ALPHA for gamma-correct rendering
+// Returns: GL texture handle on success, or a 1x1 magenta fallback if the file fails to load.
+// Actions: Decodes via stb_image (flipping V), uploads to GPU, generates mipmaps, sets
+//          linear-mipmap-linear filtering and repeat wrapping, and enables anisotropic
+//          filtering (up to 8x) if the extension is available.
 GLuint loadTexture(const std::string& path, bool srgb) {
     stbi_set_flip_vertically_on_load(true);
     int w, h, comp;

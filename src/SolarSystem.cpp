@@ -26,6 +26,12 @@ static constexpr float COMPACT_MOON_SIZE_MUL  = 3.0f;
 SolarSystem::SolarSystem() = default;
 SolarSystem::~SolarSystem() = default;
 
+// SolarSystem::init
+// Purpose: Load all planet/moon textures, optional glTF meshes, and populate gravitational
+//          parameters, SOI radii, and orbital plane angles for every solar system body.
+// Actions: Builds the planets vector (Sun + 8 planets + Earth's Moon), loads textures via
+//          loadTexture(), attempts to load "models/M_<Name>.gltf" for high-quality meshes,
+//          then sets GM, SOI, and J2000 inclination/ascending-node values by name lookup.
 void SolarSystem::init() {
     sphere = std::make_unique<SphereMesh>(96, 64);
     orbit  = std::make_unique<OrbitMesh>(1.0f, 256);
@@ -252,33 +258,59 @@ void SolarSystem::init() {
     std::cout << "[SolarSystem] Initialized " << planets.size() << " bodies.\n";
 }
 
+// SolarSystem::planetSceneRadius
+// Purpose: Return the scene-space render radius of body i (scene units).
+// Inputs:  i - body index (0 = Sun)
+// Returns: Render radius in scene units, or 1.0 if index is out of range.
 float SolarSystem::planetSceneRadius(size_t i) const {
     if (i >= planets.size()) return 1.0f;
     return planetRenderRadius(planets[i]);
 }
 
+// SolarSystem::planetRenderRadius
+// Purpose: Return the scene-space render radius for a planet (or the Sun via sunRenderRadius).
+// Inputs:  p - planet data including radiusKm and isSun flag
+// Returns: Render radius in scene units, scaled by planetSizeMul.
 float SolarSystem::planetRenderRadius(const Planet& p) const {
     if (p.isSun) return sunRenderRadius(p);
     return p.radiusKm * KM_TO_UNIT * planetSizeMul;
 }
 
+// SolarSystem::sunRenderRadius
+// Purpose: Return the scene-space render radius for the Sun.
+// Inputs:  sun - Sun planet entry with radiusKm
+// Returns: True proportional radius in REALISTIC mode, fixed COMPACT_SUN_RADIUS otherwise.
 float SolarSystem::sunRenderRadius(const Planet& sun) const {
     if (scaleMode == ScaleMode::REALISTIC) return sun.radiusKm * KM_TO_UNIT * sunSizeMul;
     return COMPACT_SUN_RADIUS * sunSizeMul;
 }
 
+// SolarSystem::planetOrbitDistance
+// Purpose: Return the scene-space orbital radius (Sun-to-planet distance) in scene units.
+// Inputs:  p - planet data with orbitRadiusGm
+// Returns: True scale distance in REALISTIC mode; compressed by compactOrbitScale in COMPACT.
 float SolarSystem::planetOrbitDistance(const Planet& p) const {
     float real = p.orbitRadiusGm * GM_TO_UNIT;
     if (scaleMode == ScaleMode::REALISTIC) return real;
     return real * compactOrbitScale;
 }
 
+// SolarSystem::moonRenderRadius
+// Purpose: Return the scene-space render radius for a moon.
+// Inputs:  m - moon data with radiusKm
+// Returns: Real-scale radius in REALISTIC mode; enlarged by COMPACT_MOON_SIZE_MUL in COMPACT.
 float SolarSystem::moonRenderRadius(const Moon& m) const {
     float base = m.radiusKm * KM_TO_UNIT;
     if (scaleMode == ScaleMode::COMPACT) base *= COMPACT_MOON_SIZE_MUL;
     return base;
 }
 
+// SolarSystem::moonOrbitDistance
+// Purpose: Return the scene-space orbital radius for a moon around its parent planet.
+// Inputs:  m      - moon data with orbitRadiusKm
+//          parent - parent planet (used to avoid clipping in COMPACT mode)
+// Returns: Real-scale orbit distance in REALISTIC mode; pushed outward in COMPACT mode
+//          by COMPACT_MOON_ORBIT_MUL plus a clearance term based on parent's render radius.
 float SolarSystem::moonOrbitDistance(const Moon& m, const Planet& parent) const {
     float real = m.orbitRadiusKm * KM_TO_UNIT;
     if (scaleMode == ScaleMode::COMPACT) {
@@ -288,12 +320,22 @@ float SolarSystem::moonOrbitDistance(const Moon& m, const Planet& parent) const 
     return real;
 }
 
+// SolarSystem::toggleScale
+// Purpose: Toggle the solar system display between COMPACT (compressed, visually comfortable)
+//          and REALISTIC (true proportional scale) modes, printing the new mode to stdout.
 void SolarSystem::toggleScale() {
     scaleMode = (scaleMode == ScaleMode::COMPACT) ? ScaleMode::REALISTIC : ScaleMode::COMPACT;
     std::cout << "[SolarSystem] Scale: "
               << (scaleMode == ScaleMode::COMPACT ? "COMPACT" : "REALISTIC") << "\n";
 }
 
+// SolarSystem::computeFocusView
+// Purpose: Compute a camera position and Euler angles that frame a given solar system body
+//          attractively with the Sun providing dramatic side-lighting.
+// Inputs:  bodyIdx  - index of the body to focus on (clamped to valid range)
+// Outputs: outPos   - recommended camera world position (scene units)
+//          outYaw   - camera yaw angle (degrees)
+//          outPitch - camera pitch angle (degrees)
 void SolarSystem::computeFocusView(size_t bodyIdx,
                                    glm::vec3& outPos,
                                    float& outYaw,
@@ -323,6 +365,13 @@ void SolarSystem::computeFocusView(size_t bodyIdx,
     outYaw   = glm::degrees(std::atan2(dir.z, dir.x));
 }
 
+// SolarSystem::update
+// Purpose: Advance all planetary and moon orbits and rotations by one real-time timestep.
+// Inputs:  dtSeconds - real elapsed time in seconds since the last call
+//          timeScale - simulated days per real second (controls simulation speed)
+// Actions: Increments each planet's rotation angle and orbit angle proportionally, then
+//          recomputes worldPos using the J2000 inclination/ascending-node rotation sequence.
+//          Also computes worldVelKmS for each planet and moon via the derivative of position.
 void SolarSystem::update(float dtSeconds, float timeScale) {
     // timeScale = simulated days per real second
     float simDays = dtSeconds * timeScale;
@@ -359,7 +408,7 @@ void SolarSystem::update(float dtSeconds, float timeScale) {
             py1 * r,
             (-px1 * sO + pz1 * cO) * r);
 
-        // Orbital velocity in km/s — derivative of position, same rotation applied.
+        // Orbital velocity in km/s - derivative of position, same rotation applied.
         if (!p.isSun && p.orbitPeriodDays > 0.0f) {
             float rKm  = p.orbitRadiusGm * 1.0e6f;
             float vOrb = 2.0f * 3.14159265f * rKm / (p.orbitPeriodDays * 86400.0f);
@@ -388,6 +437,17 @@ void SolarSystem::update(float dtSeconds, float timeScale) {
     }
 }
 
+// SolarSystem::render
+// Purpose: Draw the entire solar system: orbit lines, Sun, all planets and moons,
+//          and Saturn's rings.
+// Inputs:  planetShader - Phong-lit shader used for planets and moons
+//          sunShader    - emissive shader used for the Sun
+//          ringShader   - transparent shader used for planetary rings
+//          orbitShader  - line shader used to draw orbit path ellipses
+//          view         - camera view matrix
+//          proj         - camera projection matrix
+// Actions: Renders orbit lines, then the Sun, then each planet (with optional glTF mesh),
+//          then moons, then ring systems with alpha blending enabled.
 void SolarSystem::render(Shader& planetShader,
                          Shader& sunShader,
                          Shader& ringShader,
@@ -533,6 +593,11 @@ void SolarSystem::render(Shader& planetShader,
     glDisable(GL_BLEND);
 }
 
+// SolarSystem::planetRealPosKm
+// Purpose: Compute the real (uncompressed) heliocentric position of body i in km.
+// Inputs:  i - body index (0 = Sun returns origin; out-of-range returns origin)
+// Returns: 3D position in km, computed from orbitRadiusGm and the planet's current
+//          orbitAngle with J2000 inclination and ascending-node rotations applied.
 glm::dvec3 SolarSystem::planetRealPosKm(size_t i) const {
     if (i == 0 || i >= planets.size()) return glm::dvec3(0.0);
     const Planet& p = planets[i];
@@ -550,11 +615,24 @@ glm::dvec3 SolarSystem::planetRealPosKm(size_t i) const {
         (-px1 * sO + pz1 * cO) * r);
 }
 
+// SolarSystem::planetVelKmS
+// Purpose: Return the heliocentric orbital velocity of body i in km/s.
+// Inputs:  i - body index
+// Returns: Velocity vector in km/s as last computed by update(). Returns zero for
+//          out-of-range indices.
 glm::dvec3 SolarSystem::planetVelKmS(size_t i) const {
     if (i >= planets.size()) return glm::dvec3(0.0);
     return glm::dvec3(planets[i].worldVelKmS);
 }
 
+// SolarSystem::seedFromRealCoords
+// Purpose: Seed each planet's initial orbit angle from a map of real heliocentric
+//          positions (e.g., fetched from JPL Horizons) so the simulation starts at
+//          the correct positions for a given date.
+// Inputs:  posKm - map from planet name to [x, y, z] in km (J2000 ecliptic frame)
+// Returns: Number of planets successfully seeded.
+// Actions: For each planet found in the map, sets orbitAngle from atan2(z, x) to
+//          match the ecliptic XZ plane orientation used by this simulation.
 size_t SolarSystem::seedFromRealCoords(
     const std::unordered_map<std::string, std::array<double, 3>>& posKm) {
     size_t n = 0;

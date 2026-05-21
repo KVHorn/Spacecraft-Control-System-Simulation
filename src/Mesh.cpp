@@ -4,7 +4,12 @@
 
 static constexpr float PI_F = 3.14159265358979323846f;
 
-// ---------------- SphereMesh ----------------
+// SphereMesh::SphereMesh
+// Purpose: Generate a UV sphere with unit radius and upload its geometry to the GPU.
+// Inputs:  segments - number of longitude divisions (columns)
+//          rings    - number of latitude divisions (rows)
+// Actions: Builds interleaved position/normal/UV vertex data, generates triangle indices,
+//          creates VAO/VBO/EBO, and configures vertex attribute pointers at locations 0/1/2.
 SphereMesh::SphereMesh(int segments, int rings) {
     std::vector<float> v;
     std::vector<unsigned int> idx;
@@ -59,18 +64,29 @@ SphereMesh::SphereMesh(int segments, int rings) {
     glBindVertexArray(0);
 }
 
+// SphereMesh::~SphereMesh
+// Purpose: Release GPU resources (VAO, VBO, EBO) owned by this sphere mesh.
 SphereMesh::~SphereMesh() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
     if (ebo) glDeleteBuffers(1, &ebo);
 }
 
+// SphereMesh::draw
+// Purpose: Bind the sphere VAO and issue an indexed triangle draw call.
 void SphereMesh::draw() const {
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
 
-// ---------------- RingMesh ----------------
+// RingMesh::RingMesh
+// Purpose: Generate a flat annular ring mesh in the XZ plane and upload it to the GPU.
+// Inputs:  innerRadius - radius of the ring's inner edge
+//          outerRadius - radius of the ring's outer edge
+//          segments    - number of angular divisions around the ring
+// Actions: Builds interleaved position/normal/UV vertex pairs (inner + outer per segment),
+//          generates triangle-strip indices, creates VAO/VBO/EBO, and configures attribute
+//          pointers. UV.x = 0 at inner edge, 1 at outer edge.
 RingMesh::RingMesh(float innerRadius, float outerRadius, int segments) {
     std::vector<float> v;
     std::vector<unsigned int> idx;
@@ -116,18 +132,27 @@ RingMesh::RingMesh(float innerRadius, float outerRadius, int segments) {
     glBindVertexArray(0);
 }
 
+// RingMesh::~RingMesh
+// Purpose: Release GPU resources (VAO, VBO, EBO) owned by this ring mesh.
 RingMesh::~RingMesh() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
     if (ebo) glDeleteBuffers(1, &ebo);
 }
 
+// RingMesh::draw
+// Purpose: Bind the ring VAO and issue an indexed triangle draw call.
 void RingMesh::draw() const {
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
 
-// ---------------- OrbitMesh ----------------
+// OrbitMesh::OrbitMesh
+// Purpose: Generate a circle of line vertices in the XZ plane and upload them to the GPU.
+// Inputs:  radius   - radius of the circle
+//          segments - number of line segments (vertices) in the loop
+// Actions: Builds a flat array of XZ positions, creates VAO/VBO, and configures the
+//          position attribute pointer at location 0.
 OrbitMesh::OrbitMesh(float radius, int segments) {
     std::vector<float> v;
     v.reserve(segments * 3);
@@ -149,17 +174,24 @@ OrbitMesh::OrbitMesh(float radius, int segments) {
     glBindVertexArray(0);
 }
 
+// OrbitMesh::~OrbitMesh
+// Purpose: Release GPU resources (VAO, VBO) owned by this orbit circle mesh.
 OrbitMesh::~OrbitMesh() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
 }
 
+// OrbitMesh::draw
+// Purpose: Bind the orbit VAO and issue a GL_LINE_LOOP draw call.
 void OrbitMesh::draw() const {
     glBindVertexArray(vao);
     glDrawArrays(GL_LINE_LOOP, 0, vertexCount);
 }
 
-// ---------------- SkyboxMesh ----------------
+// SkyboxMesh::SkyboxMesh
+// Purpose: Build an inward-facing unit cube for skybox rendering and upload it to the GPU.
+// Actions: Hard-codes 36 position-only vertices (2 triangles per face, 6 faces), creates
+//          VAO/VBO, and configures the position attribute at location 0.
 SkyboxMesh::SkyboxMesh() {
     // 36 vertices of a unit cube (no indices, positions only)
     const float verts[] = {
@@ -186,11 +218,15 @@ SkyboxMesh::SkyboxMesh() {
     glBindVertexArray(0);
 }
 
+// SkyboxMesh::~SkyboxMesh
+// Purpose: Release GPU resources (VAO, VBO) owned by this skybox mesh.
 SkyboxMesh::~SkyboxMesh() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
 }
 
+// SkyboxMesh::draw
+// Purpose: Bind the skybox VAO and draw all 36 vertices as triangles.
 void SkyboxMesh::draw() const {
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
